@@ -1,25 +1,58 @@
 #include "transfer.h"
 
 char *ip_addr = "192.168.2.158";
+unsigned short port = 8877;
 
 int main(int argc, char *argv[])
 {
     transfer_request request;
     char buf[BUF_SIZE];
     int len = 0;
-    int sock;
+    int fd;
+    int code = 0;
+    
+    init_socket(&request, ip_addr, port);
 
-    request.connect = connect_server;
-    request.port = 8877;
-    request.remote_addr = ip_addr;
 
     sock = request.connect(&request);
     if (sock < 0)
         return;
 
-    while(1)
+    for(;;)
     {
-        printf("Enter string to send:");
+        //printf("Enter string to send:");
+        switch (request.state)
+        {
+        case STATE_WAIT_CONN:
+            if((request.fd = request.connect(&request)) < 0)
+            {
+                DELAY(CONNECT_DELAY_SECONDS);
+                break;
+            }
+
+            request.state = STATE_CONNECTED;
+            break;
+        /* |TYPE|LEN|CODE|CRC|DATA               |  */
+        case STATE_CONNECTED:
+            len = recv(request.fd, buf, BUF_SIZE, 0);
+            code = server_msg_check(buf, len);
+
+            switch (code)
+            {
+            case CODE_CHECK_FILE:
+
+            case CODE_TRASFER:
+
+            }
+            break;
+        case STATE_TRANSFER:
+            break;
+        default:
+            break;
+        }
+    }
+
+
         scanf("%s", &buf);
   
         if(!strcmp(buf, "quit"))

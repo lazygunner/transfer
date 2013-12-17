@@ -1,10 +1,15 @@
 #include <stdio.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#ifdef VXWORKS
+#else
+    #include <sys/socket.h>
+    #include <sys/types.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <unistd.h>
+#endif
 
 #define BUF_SIZE 1024
+#define CONNECT_DELAY_SECONDS 10
 
 typedef long off_t;
 
@@ -20,7 +25,7 @@ struct transfer_request_tag
 
     unsigned int port;
     int state;
-    int datafd;
+    int fd;
 
     
     void *remote_addr;
@@ -65,3 +70,14 @@ struct transfer_request_tag
 #define ERROR_TIMEDOUT          0x80000005   /* Connected timed out */
 
 int connect_server(transfer_request *request);
+
+#ifdef VXWORKS
+    #define DELAY(seconds) 
+    #define HTONS(host) host
+    #define HTONL(host) host
+#else
+    #define DELAY(seconds) sleep(seconds)
+    #define HTONS(host) htons(host)
+    #define HTONL(host) htonl(host)
+#else
+#endif

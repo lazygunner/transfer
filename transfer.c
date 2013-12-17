@@ -4,9 +4,11 @@
 int init_socket(transfer_request *request,\
                     unsigned short host_port, char *host_ip)
 {
-    
-
-
+    request->connect = connect_server;
+    request->port = HTONS(host_port);
+    request->remote_addr = host_ip;
+    request->state = STATE_WAIT_CONN;
+    request->fd = 0;
 }
 
 int connect_server(transfer_request *request)
