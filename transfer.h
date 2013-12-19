@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include "log.h"
 #ifdef VXWORKS
 #else
     #include <sys/socket.h>
@@ -52,6 +53,44 @@ struct transfer_request_tag
 
 };
 
+/* frame header */
+typedef struct frame_header_tag{
+    unsigned short length;
+    unsigned char type;
+    unsigned char sub_type;
+    unsigned short crc;
+}frame_header;
+
+/* transfer frame */
+typedef struct transfer_frame_tag{
+    frame_header header;
+    unsigned char *data;
+    unsigned char tail;
+}transfer_frame;
+
+/* login frame */
+typedef struct login_frame_tag{
+    unsigned int client_ip;
+    unsigned char car_no_len;
+    unsigned char *car_no;
+}
+
+/* Transfer frame type & sub type */
+#define FRAME_TYPE_HEARTBEAT    0X00
+#define FRAME_TYPE_CONTROL      0x01
+#define FRAME_TYPE_DATA         0X02
+
+#define FRAME_CONTROL_LOGIN            0X01
+#define FRAME_CONTROL_LOGIN_CONFIRM    0X02 
+#define FRAME_CONTROL_CONTINUE         0X03
+#define FRAME_CONTROL_FILE_INFO        0X04
+#define FRAME_CONTROL_DOWNLOAD         0X05
+
+#define FRAME_DATA_MONITOR      0X01
+
+#define FRAME_TAIL              0xFF
+
+
 /* Transfer states */
 #define STATE_WAIT_CONN         0x00010000
 #define STATE_CONNECTED         0x00010001
@@ -81,3 +120,6 @@ int connect_server(transfer_request *request);
     #define HTONL(host) htonl(host)
 #else
 #endif
+
+
+
