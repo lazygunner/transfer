@@ -2,23 +2,23 @@
 #include <stdio.h>
 #include "log.h"
 
-bool log_created = false;
+char log_created = 0;
 
-void log (char *message)
+void t_log (char *message)
 {
     FILE *file;
     char log_msg[256];
 
     if (!log_created) {
         file = fopen(LOGFILE, "w");
-        log_created = true;
+        log_created = 1;
     }
     else
         file = fopen(LOGFILE, "a");
 
     if (file == NULL) {
         if (log_created)
-                log_created = false;
+                log_created = 0;
         return;
     }
     else
@@ -26,7 +26,7 @@ void log (char *message)
         time_t now;
         time(&now);
         memset(log_msg, 0, sizeof(log_msg));
-        sprintf(log_msg, "%s : %s\n", ctime(&now), message);
+        sprintf(log_msg, "%s\b : %s\n", ctime(&now), message);
         fputs(log_msg, file);
         fclose(file);
     }

@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "log.h"
 #ifdef VXWORKS
 #else
@@ -11,6 +12,7 @@
 
 #define BUF_SIZE 1024
 #define CONNECT_DELAY_SECONDS 10
+
 
 typedef long off_t;
 
@@ -27,6 +29,8 @@ struct transfer_request_tag
     unsigned int port;
     int state;
     int fd;
+    unsigned char train_no_len;
+    unsigned char *train_no;
 
     
     void *remote_addr;
@@ -70,10 +74,10 @@ typedef struct transfer_frame_tag{
 
 /* login frame */
 typedef struct login_frame_tag{
-    unsigned int client_ip;
-    unsigned char car_no_len;
-    unsigned char *car_no;
-}
+//    unsigned int client_ip;
+    unsigned char train_no_len;
+    unsigned char *train_no;
+}login_frame;
 
 /* Transfer frame type & sub type */
 #define FRAME_TYPE_HEARTBEAT    0X00
@@ -94,7 +98,8 @@ typedef struct login_frame_tag{
 /* Transfer states */
 #define STATE_WAIT_CONN         0x00010000
 #define STATE_CONNECTED         0x00010001
-#define STATE_TRANSFER          0x00010002
+#define STATE_LOGIN             0x00010002
+#define STATE_TRANSFER          0x00010003
 
 /* Error types */
 #define ERROR_RETRYABLE         0x80000001   /* Temporary failure. The GUI
@@ -110,6 +115,7 @@ typedef struct login_frame_tag{
 
 int connect_server(transfer_request *request);
 
+unsigned short get_crc_code(const char *buf, unsigned int len);
 #ifdef VXWORKS
     #define DELAY(seconds) 
     #define HTONS(host) host
@@ -118,8 +124,8 @@ int connect_server(transfer_request *request);
     #define DELAY(seconds) sleep(seconds)
     #define HTONS(host) htons(host)
     #define HTONL(host) htonl(host)
-#else
 #endif
 
-
+#define t_malloc(x) malloc(x)
+#define t_free(x) free(x)
 

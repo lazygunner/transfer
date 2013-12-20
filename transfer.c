@@ -1,14 +1,17 @@
 #include "transfer.h"
 
+char *g_train_no = "abcd1234";
 
 int init_socket(transfer_request *request,\
                     unsigned short host_port, char *host_ip)
 {
     request->connect = connect_server;
-    request->port = HTONS(host_port);
+    request->port = host_port;
     request->remote_addr = host_ip;
     request->state = STATE_WAIT_CONN;
     request->fd = 0;
+    request->train_no = g_train_no;
+    request->train_no_len = strlen(g_train_no);
 }
 
 int connect_server(transfer_request *request)
@@ -22,7 +25,7 @@ int connect_server(transfer_request *request)
     remote_addr.sin_family = AF_INET;
     //remote_addr.sin_addr.s_addr = inet_addr(request->remote_addr);
     inet_pton(AF_INET, request->remote_addr, &remote_addr.sin_addr.s_addr);
-    remote_addr.sin_port = htons(request->port);
+    remote_addr.sin_port = HTONS(request->port);
     if((client_fd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
     {
         perror("socket");
