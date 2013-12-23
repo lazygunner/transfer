@@ -12,7 +12,7 @@
 
 #define BUF_SIZE 1024
 #define CONNECT_DELAY_SECONDS 10
-
+#define LEN_HEADER 2
 
 typedef long off_t;
 

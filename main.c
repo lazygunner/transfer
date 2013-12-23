@@ -9,7 +9,7 @@ int main(int argc, char *argv[])
 {
     transfer_request request;
     transfer_frame *f_send, *f_recv;
-    frame_header *f_header;
+    frame_header *f_header, *recv_header;
     login_frame *f_login;
 
     char *login_buf;
@@ -19,6 +19,7 @@ int main(int argc, char *argv[])
 
 
     int len = 0, login_len = 0;
+    unsigned short recv_len = 0;
     int buf_offset = 0;
     int fd;
     int code = 0;
@@ -90,8 +91,33 @@ int main(int argc, char *argv[])
             memcpy(buf_send + buf_offset, login_buf, request.train_no_len);
             buf_offset += request.train_no_len;
             memset(buf_send + buf_offset, FRAME_TAIL, 1);
-
+            /* send login frame */
             len = send(request.fd, buf_send, f_header->length, 0);
+            /* waiting for login confirm frame */
+            memset(buf, 0, 1024);
+            len = recv(request.fd, buf, LEN_HEADER, 0);
+            recv_len = HTONS(*((unsigned short *)buf));
+            if (recv_len > 100 || recv_len <= 0)
+            {
+                t_log("receive package length error!");
+                t_free(f_header);
+                t_free(login_buf);
+                goto re_conn;
+            }
+            recv(request.fd, buf + 2, recv_len, 0);
+            recv_header = (frame_header *)buf;
+            if(buf[recv_len + 1] != FRAME_TAIL ||\
+                recv_header->type != FRAME_TYPE_CONTROL\
+                || recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
+            {
+                t_log("receive error");
+                t_free(f_header);
+                t_free(login_buf);
+                goto re_conn;
+            }
+            request.state = STATE_LOGIN;
+            printf("connect complete!");
+            
             
         /* |TYPE|LEN|CODE|CRC|DATA               |  */
         case STATE_LOGIN:
