@@ -31,6 +31,4 @@ void t_log (char *message)
         fclose(file);
     }
 
-    if (file)
-        fclose(file);
 }

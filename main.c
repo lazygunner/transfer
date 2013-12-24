@@ -14,8 +14,8 @@ int main(int argc, char *argv[])
 
     char *login_buf;
 
-    char buf[BUF_SIZE];
-    char buf_send[BUF_SIZE];
+    unsigned char buf[BUF_SIZE];
+    unsigned char buf_send[BUF_SIZE];
 
 
     int len = 0, login_len = 0;
@@ -48,7 +48,7 @@ int main(int argc, char *argv[])
                 t_log("connection socket lost!");
                 goto re_conn;
             }
-            if((f_header = (frame_header *)malloc(sizeof(f_header))) == NULL) 
+            if((f_header = (frame_header *)t_malloc(sizeof(f_header))) == NULL) 
             {
                 t_log("malloc frame header error!");
                 goto re_conn;
@@ -57,6 +57,7 @@ int main(int argc, char *argv[])
                     f_header) < 0)
             {
                 t_log("frame init failed!");
+                t_free(f_header);
                 goto re_conn;
             }
             /*
@@ -106,9 +107,7 @@ int main(int argc, char *argv[])
             }
             recv(request.fd, buf + 2, recv_len, 0);
             recv_header = (frame_header *)buf;
-            if(buf[recv_len + 1] != FRAME_TAIL ||\
-                recv_header->type != FRAME_TYPE_CONTROL\
-                || recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
+            if (buf[recv_len + 1] != FRAME_TAIL || recv_header->type != FRAME_TYPE_CONTROL || recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
             {
                 t_log("receive error");
                 t_free(f_header);
@@ -117,21 +116,32 @@ int main(int argc, char *argv[])
             }
             request.state = STATE_LOGIN;
             printf("connect complete!");
-            
+            t_free(f_header);
+            t_free(login_buf);
+
             
         /* |TYPE|LEN|CODE|CRC|DATA               |  */
         case STATE_LOGIN:
-            //len = recv(request.fd, buf, BUF_SIZE, 0);
-            //cmd = server_msg_check(buf, len);
-            /*
-            switch (cmd)
+            
+            memset(buf, 0, 1024);
+            len = recv(request.fd, buf, LEN_HEADER, 0);
+            recv_len = HTONS(*((unsigned short *)buf));
+            if (recv_len > 100 || recv_len <= 0)
             {
-            case CMD_CHECK_FILE:
-                
-            case CMD_TRASFER:
-
+                t_log("receive package length error!");
+                goto re_conn;
             }
-            */
+            recv(request.fd, buf + 2, recv_len, 0);
+            recv_header = (frame_header *)buf;
+            if (buf[recv_len + 1] != FRAME_TAIL || recv_header->type != FRAME_TYPE_CONTROL || recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
+            {
+                t_log("receive error");
+                t_free(f_header);
+                t_free(login_buf);
+                goto re_conn;
+            }
+            request.state = STATE_LOGIN;
+
             break;
         case STATE_TRANSFER:
             break;
