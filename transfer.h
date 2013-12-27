@@ -16,8 +16,8 @@
 
 typedef long off_t;
 
-typedef struct transfer_request_tag transfer_request;
-struct transfer_request_tag
+typedef struct transfer_session_tag transfer_session;
+struct transfer_session_tag
 {
     //info reserve
     char *hostname;
@@ -39,18 +39,18 @@ struct transfer_request_tag
 
     void *protocol_data;
 
-    int (* init) (transfer_request *request);
-    size_t (* read_function) (transfer_request *request, 
+    int (* init) (transfer_session *session);
+    size_t (* read_function) (transfer_session *session, 
                                 void *ptr,
                                 size_t size,
                                 int fd);
-    size_t (* write_function) (transfer_request *request, 
+    size_t (* write_function) (transfer_session *session, 
                                 void *ptr,
                                 size_t size,
                                 int fd);
 
-    int (* connect) (transfer_request *request);
-    int (* disconnect) (transfer_request *request);
+    int (* connect) (transfer_session *session);
+    int (* disconnect) (transfer_session *session);
 
     off_t (* transfer_file);
 
@@ -110,10 +110,10 @@ typedef struct login_frame_tag{
                                                reconnect */
 #define ERROR_NOTRANS           0x80000004   /* Custom error. This is
                                                returned when a FXP transfer
-                                               is requested */
+                                               is sessioned */
 #define ERROR_TIMEDOUT          0x80000005   /* Connected timed out */
 
-int connect_server(transfer_request *request);
+int connect_server(transfer_session *session);
 
 unsigned short get_crc_code(const char *buf, unsigned int len);
 #ifdef VXWORKS

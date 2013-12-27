@@ -2,7 +2,7 @@
 
 char *g_train_no = "abcd1234";
 
-int init_socket(transfer_request *request,\
+int init_socket(transfer_session *request,\
                     unsigned short host_port, char *host_ip)
 {
     request->connect = connect_server;
@@ -14,7 +14,7 @@ int init_socket(transfer_request *request,\
     request->train_no_len = strlen(g_train_no);
 }
 
-int connect_server(transfer_request *request)
+int connect_server(transfer_session *request)
 {
     int client_fd;
     int len = 0;
