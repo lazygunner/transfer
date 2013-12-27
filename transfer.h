@@ -95,23 +95,14 @@ typedef struct login_frame_tag{
 #define FRAME_TAIL              0xFF
 
 
+
 /* Transfer states */
 #define STATE_WAIT_CONN         0x00010000
 #define STATE_CONNECTED         0x00010001
 #define STATE_LOGIN             0x00010002
 #define STATE_TRANSFER          0x00010003
 
-/* Error types */
-#define ERROR_RETRYABLE         0x80000001   /* Temporary failure. The GUI
-                                               should wait briefly */
-#define ERROR_FATAL             0x80000002   /* Fatal error */
-#define ERROR_RETRYABLE_NO_WAIT 0x80000003   /* Temporary failure. The GUI
-                                               should not wait and should
-                                               reconnect */
-#define ERROR_NOTRANS           0x80000004   /* Custom error. This is
-                                               returned when a FXP transfer
-                                               is sessioned */
-#define ERROR_TIMEDOUT          0x80000005   /* Connected timed out */
+
 
 int connect_server(transfer_session *session);
 

@@ -1,8 +1,11 @@
 #include "transfer.h"
+#include "error.h"
+#include "file.h"
 
 char *ip_addr = "192.168.2.158";
 unsigned short port = 8877;
-
+char *file_name = "test.txt";
+char *file_path = "files/";
 
 
 int main(int argc, char *argv[])
@@ -11,14 +14,18 @@ int main(int argc, char *argv[])
     transfer_frame *f_send, *f_recv;
     frame_header *f_header, *recv_header;
     login_frame *f_login;
+    
+
+    file_desc *f_desc;
 
     char *login_buf;
 
     unsigned char buf[BUF_SIZE];
     unsigned char buf_send[BUF_SIZE];
+    unsigned char *buf_file_info;
 
 
-    int len = 0, login_len = 0;
+    int len = 0, login_len = 0, file_info_len = 0, file_count = 0;
     unsigned short recv_len = 0;
     int buf_offset = 0;
     int fd;
@@ -122,7 +129,8 @@ int main(int argc, char *argv[])
             
         /* |TYPE|LEN|CODE|CRC|DATA               |  */
         case STATE_LOGIN:
-            
+
+            file_info_len = get_file_info(file_path, &buf_file_info, &file_count);
             memset(buf, 0, 1024);
             len = recv(session.fd, buf, LEN_HEADER, 0);
             recv_len = HTONS(*((unsigned short *)buf));
@@ -142,6 +150,14 @@ int main(int argc, char *argv[])
             switch(recv_header->sub_type)
             {
             case FRAME_CONTROL_DOWNLOAD:
+                if(NULL == (f_desc =\
+                    (file_desc *)t_malloc(sizeof(file_desc))));
+                {
+                    t_log("malloc login_buf frame error!");
+                    break;
+                }
+                f_desc->file_name = file_name;
+                init_send_file(f_desc);
                 break;
             case FRAME_CONTROL_CONTINUE:
                 break;
