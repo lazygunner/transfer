@@ -14,18 +14,17 @@ int main(int argc, char *argv[])
     transfer_frame *f_send, *f_recv;
     frame_header *f_header, *recv_header;
     login_frame *f_login;
-    
-
     file_desc *f_desc;
 
     char *login_buf;
 
     unsigned char buf[BUF_SIZE];
     unsigned char buf_send[BUF_SIZE];
+    unsigned char buf_file_name[FILE_NAME_MAX];
     unsigned char *buf_file_info;
 
 
-    int len = 0, login_len = 0, file_info_len = 0, file_count = 0;
+    int len = 0, data_len = 0, frame_len = 0;
     unsigned short recv_len = 0;
     int buf_offset = 0;
     int fd;
@@ -55,108 +54,96 @@ int main(int argc, char *argv[])
                 t_log("connection socket lost!");
                 goto re_conn;
             }
-            if((f_header = (frame_header *)t_malloc(sizeof(f_header))) == NULL) 
-            {
-                t_log("malloc frame header error!");
-                goto re_conn;
-            }
+            
+            /* init frame header area */
             if(frame_header_init(FRAME_TYPE_CONTROL, FRAME_CONTROL_LOGIN,\
-                    f_header) < 0)
+                    &f_header) < 0)
             {
                 t_log("frame init failed!");
-                t_free(f_header);
                 goto re_conn;
             }
-            /*
-            if((f_login = (login_frame *)t_malloc(sizeof(login_frame)))\
-                == NULL)
-            {
-                t_log("malloc login frame error!");
-                t_free(f_send);
-                goto re_conn;
-            }
-
-            f_login->car_no = TEST_CAR_NO;
-            f_login->car_no_len = sizeof(TEST_CAR_NO);
-            */
+            
+            /* init frame data area */
             if((login_buf = (char *)malloc(1 + session.train_no_len)) == NULL) 
             {
                 t_log("malloc login_buf frame error!");
-                t_free(f_header);
                 goto re_conn;
             }
-
             memset(login_buf, session.train_no_len, 1);
             memcpy(login_buf + 1, session.train_no, session.train_no_len);
+            data_len = session.train_no_len + 1;
             
-            login_len = session.train_no_len + 1;
-            f_header->length = sizeof(f_header) + login_len + 1;
-            /* crc of the data section */
-            f_header->crc = get_crc_code(login_buf, login_len);
+            /* build sending frame */
+            frame_len = frame_build(f_header, login_buf, data_len, buf_send);
 
-            memcpy(buf_send, f_header, sizeof(frame_header));
-            buf_offset += sizeof(frame_header);
-            memcpy(buf_send + buf_offset, login_buf, session.train_no_len);
-            buf_offset += session.train_no_len;
-            memset(buf_send + buf_offset, FRAME_TAIL, 1);
             /* send login frame */
-            len = send(session.fd, buf_send, f_header->length, 0);
+            len = send(session.fd, buf_send, frame_len, 0);
+
             /* waiting for login confirm frame */
-            memset(buf, 0, 1024);
-            len = recv(session.fd, buf, LEN_HEADER, 0);
-            recv_len = HTONS(*((unsigned short *)buf));
-            if (recv_len > 100 || recv_len <= 0)
-            {
-                t_log("receive package length error!");
-                t_free(f_header);
-                t_free(login_buf);
+            if ((recv_len = recv_frame(session.fd, buf)) <= 0)
                 goto re_conn;
-            }
-            recv(session.fd, buf + 2, recv_len, 0);
+
             recv_header = (frame_header *)buf;
-            if (buf[recv_len + 1] != FRAME_TAIL || recv_header->type != FRAME_TYPE_CONTROL || recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
+            if (recv_header->type != FRAME_TYPE_CONTROL ||\
+                recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
             {
                 t_log("receive error");
-                t_free(f_header);
-                t_free(login_buf);
                 goto re_conn;
             }
+
             session.state = STATE_LOGIN;
-            printf("connect complete!");
-            t_free(f_header);
-            t_free(login_buf);
+            printf("login complete!");
+re_conn:
+            if(f_header)
+                t_free(f_header);
+            if(login_buf)
+                t_free(login_buf);
             break;
             
-        /* |TYPE|LEN|CODE|CRC|DATA               |  */
         case STATE_LOGIN:
 
-            file_info_len = get_file_info(file_path, &buf_file_info, &file_count);
-            memset(buf, 0, 1024);
-            len = recv(session.fd, buf, LEN_HEADER, 0);
-            recv_len = HTONS(*((unsigned short *)buf));
-            if (recv_len > 100 || recv_len <= 0)
+            /* init frame header area */
+            if(frame_header_init(FRAME_TYPE_CONTROL, FRAME_CONTROL_FILE_INFO,\
+                    &f_header) < 0)
             {
-                t_log("receive package length error!");
-                goto re_conn;
+                t_log("frame init failed!");
+                goto re_login;
             }
-            recv(session.fd, buf + 2, recv_len, 0);
+            
+            /* init data area */
+            data_len = get_file_info(file_path, &buf_file_info);
+
+            /* build frame */
+            frame_len = frame_build(f_header, buf_file_info, data_len, buf_send);
+
+            /* send login frame */
+            len = send(session.fd, buf_send, frame_len, 0);
+            
+            /* wait for server frame */
+            if ((recv_len = recv_frame(session.fd, buf)) <= 0)
+                goto re_login;
+
             recv_header = (frame_header *)buf;
-            if (buf[recv_len + 1] != FRAME_TAIL || recv_header->type != FRAME_TYPE_CONTROL)
+            if (recv_header->type != FRAME_TYPE_CONTROL)
             {
                 t_log("receive error");
-                break;
+                goto re_login;
             }
             /* handle the sub type */
             switch(recv_header->sub_type)
             {
             case FRAME_CONTROL_DOWNLOAD:
-                if(NULL == (f_desc =\
-                    (file_desc *)t_malloc(sizeof(file_desc))));
+                if(NULL == (f_desc = (file_desc *)t_malloc(sizeof(file_desc))))
                 {
                     t_log("malloc login_buf frame error!");
-                    break;
+                    goto re_login;
                 }
-                f_desc->file_name = file_name;
+                
+                memcpy(buf_file_name + strlen(strcpy(buf_file_name, file_path)),\
+                        buf + sizeof(frame_header) + 1,\
+                        NTOHS(recv_header->length) - sizeof(frame_header));
+
+                f_desc->file_name = buf_file_name;
                 init_send_file(f_desc);
                 break;
             case FRAME_CONTROL_CONTINUE:
@@ -165,12 +152,16 @@ int main(int argc, char *argv[])
                 break;
             }
 
+re_login:
+            if(f_header)
+                t_free(f_header);
+            if(buf_file_info)
+                t_free(buf_file_info);
+
             break;
         case STATE_TRANSFER:
             break;
         default:
-re_conn:
-            session.state = STATE_WAIT_CONN;
             break;
         }
     }

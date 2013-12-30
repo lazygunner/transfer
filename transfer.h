@@ -11,6 +11,7 @@
 #endif
 
 #define BUF_SIZE 1024
+#define FILE_NAME_MAX 256
 #define CONNECT_DELAY_SECONDS 10
 #define LEN_HEADER 2
 
@@ -83,14 +84,15 @@ typedef struct login_frame_tag{
 #define FRAME_TYPE_HEARTBEAT    0X00
 #define FRAME_TYPE_CONTROL      0x01
 #define FRAME_TYPE_DATA         0X02
+#define FRAME_TYPE_MAX          0X03
 
-#define FRAME_CONTROL_LOGIN            0X01
-#define FRAME_CONTROL_LOGIN_CONFIRM    0X02 
-#define FRAME_CONTROL_CONTINUE         0X03
-#define FRAME_CONTROL_FILE_INFO        0X04
-#define FRAME_CONTROL_DOWNLOAD         0X05
-
-#define FRAME_DATA_MONITOR      0X01
+#define FRAME_CONTROL_LOGIN             0X01
+#define FRAME_CONTROL_LOGIN_CONFIRM     0X02 
+#define FRAME_CONTROL_CONTINUE          0X03
+#define FRAME_CONTROL_FILE_INFO         0X04
+#define FRAME_CONTROL_DOWNLOAD          0X05
+#define FRAME_DATA_MONITOR              0X06
+#define FRAME_SUB_TYPE_MAX              0X07
 
 #define FRAME_TAIL              0xFF
 
@@ -111,10 +113,14 @@ unsigned short get_crc_code(const char *buf, unsigned int len);
     #define DELAY(seconds) 
     #define HTONS(host) host
     #define HTONL(host) host
+    #define NTOHS(host) host
+    #define NTOHL(host) host
 #else
     #define DELAY(seconds) sleep(seconds)
     #define HTONS(host) htons(host)
     #define HTONL(host) htonl(host)
+    #define NTOHS(host) ntohs(host)
+    #define NTOHL(host) ntohl(host)
 #endif
 
 #define t_malloc(x) malloc(x)
