@@ -1,4 +1,5 @@
-CFLAGS = -g
+CFLAGS = -g 
+LDFLAGS = -pthread
 
 transfer: transfer.o main.o log.o crc.o frame.o file.o
 

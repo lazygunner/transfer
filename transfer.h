@@ -8,6 +8,10 @@
     #include <netinet/in.h>
     #include <arpa/inet.h>
     #include <unistd.h>
+    #include <pthread.h>
+
+    #include <sys/ipc.h>
+    #include <sys/msg.h>
 #endif
 
 #define BUF_SIZE 1024
@@ -121,6 +125,7 @@ unsigned short get_crc_code(const char *buf, unsigned int len);
     #define HTONL(host) htonl(host)
     #define NTOHS(host) ntohs(host)
     #define NTOHL(host) ntohl(host)
+
 #endif
 
 #define t_malloc(x) malloc(x)
