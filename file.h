@@ -48,8 +48,7 @@ struct file_block_desc_tag
 
 typedef struct file_frame_data_tag
 {
-    unsigned char   train_no_len;
-    unsigned char   train_no[TRAIN_NO_LEN];
+    unsigned short  file_id;
     unsigned short  block_index;
     unsigned short  frame_index;
     unsigned char   data[FRAME_DATA_LEN];
@@ -61,6 +60,7 @@ typedef struct file_desc
     unsigned char   *file_name;
     FILE            *file_fd;
     int             file_size;      /* max file size < 2GB */
+    unsigned short  file_id;
     file_block_desc *block_head;
     file_block_desc *block_tail;
     t_lock          block_list_lock;    

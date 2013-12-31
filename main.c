@@ -29,6 +29,7 @@ int main(int argc, char *argv[])
     int buf_offset = 0;
     int fd;
     int code = 0;
+    unsigned char file_name_len = 0;
     
     init_socket(&session, port, ip_addr);
 
@@ -139,10 +140,13 @@ re_conn:
                     goto re_login;
                 }
                 
-                memcpy(buf_file_name + strlen(strcpy(buf_file_name, file_path)),\
-                        buf + sizeof(frame_header) + 1,\
-                        NTOHS(recv_header->length) - sizeof(frame_header));
+                file_name_len = *(buf + sizeof(frame_header) + 1);
+                memcpy(buf_file_name + strlen(strcpy(buf_file_name,\
+                        file_path)), buf + sizeof(frame_header) + 2,\
+                        file_name_len);
 
+                f_desc->file_id = *((unsigned short *)(\
+                        buf + sizeof(frame_header) + 2 + file_name_len));
                 f_desc->file_name = buf_file_name;
                 init_send_file(f_desc);
                 break;
