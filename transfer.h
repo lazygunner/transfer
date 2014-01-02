@@ -1,6 +1,10 @@
+#ifndef _TRANS_H_
+#define _TRANS_H_
+
 #include <stdio.h>
 #include <string.h>
 #include "log.h"
+#include "thread.h"
 #ifdef VXWORKS
 #else
     #include <sys/socket.h>
@@ -19,7 +23,66 @@
 #define CONNECT_DELAY_SECONDS 10
 #define LEN_HEADER 2
 
+#define TRAIN_NO_LEN            20
+#define FRAME_DATA_LEN          2048
+
+#define ORIGIN_FRAME            0x00
+#define RETRAN_FRAME            0x01
+
 typedef long off_t;
+
+
+
+
+/* used especially for retry frames */
+typedef struct frame_index_tag frame_index;
+struct frame_index_tag
+{
+    unsigned short  block_index;
+    unsigned short  frame_index;
+    frame_index     *next;
+};
+ 
+/*
+        ----        ----
+       |blk |      |blk |
+       |desc|------|desc|---....
+        ----        ----
+         |__ ----    |_______ ----      ----
+            |b_no|           |b_no|    |b_no|
+            |FFFF|           |f_no|----|f_no|---....
+             ----             ----      ----
+*/
+typedef struct file_block_desc_tag file_block_desc;
+struct file_block_desc_tag
+{
+    unsigned char   retry_flag;
+    frame_index     *index;
+    file_block_desc *next;
+};
+ 
+ 
+typedef struct file_frame_data_tag
+{
+    unsigned short  file_id;
+    unsigned short  block_index;
+    unsigned short  frame_index;
+    unsigned char   data[FRAME_DATA_LEN];
+}file_frame_data;
+
+typedef struct file_desc
+{
+    unsigned char   *file_name;
+    FILE            *file_fd;
+    int             file_size;      /* max file size < 2GB */
+    unsigned short  file_id;
+    file_block_desc *block_head;
+    file_block_desc *block_tail;
+    t_lock          *block_list_lock;
+}file_desc;
+
+
+
 
 typedef struct transfer_session_tag transfer_session;
 struct transfer_session_tag
@@ -43,6 +106,8 @@ struct transfer_session_tag
     int ai_family;
 
     void *protocol_data;
+
+    file_desc *f_desc;
 
     int (* init) (transfer_session *session);
     size_t (* read_function) (transfer_session *session, 
@@ -107,6 +172,7 @@ typedef struct login_frame_tag{
 #define STATE_CONNECTED         0x00010001
 #define STATE_LOGIN             0x00010002
 #define STATE_TRANSFER          0x00010003
+#define STATE_TRANSFER_FIN      0x00010004
 
 
 
@@ -131,3 +197,4 @@ unsigned short get_crc_code(const char *buf, unsigned int len);
 #define t_malloc(x) malloc(x)
 #define t_free(x) free(x)
 
+#endif

@@ -1,11 +1,10 @@
 #include "file.h"
-#include "transfer.h"
 #include "error.h"
 #include <dirent.h>
 #include <sys/stat.h>
 
-#define FILE_BLOCK_SIZE     1024 * 1024 * 1024  /* 1MB */
-#define FILE_FRAME_SIZE     2 * 1024 * 1024     /* 2KB */
+#define FILE_BLOCK_SIZE     1024 * 1024     /* 1MB */
+#define FILE_FRAME_SIZE     1024 * 2        /* 2KB */
 
 #define FILE_INFO_LEN       9                   /* 4 + 4 + 1 */     
 
@@ -76,7 +75,9 @@ int init_send_file(file_desc *f_desc)
     if(0 == (f_desc->file_size = get_file_size(f_desc->file_fd)))
         return ERR_FILE_SIZE_ZERO;
     
-    init_lock(&(f_desc->block_list_lock));
+    t_lock *block_list_lock = t_malloc(sizeof(t_lock));
+    init_lock(block_list_lock);
+    f_desc->block_list_lock = block_list_lock;
 
     return init_send_list(f_desc);
     
@@ -161,35 +162,56 @@ int get_file_info(char *path, unsigned char **buf)
     return offset;
 }
 
-
-int init_lock(t_lock *lock)
+static file_block_desc *get_first_block(file_desc *f_desc)
 {
-    return pthread_mutex_init(lock, NULL);  
+    file_block_desc *block;
+
+    if(!f_desc || !f_desc->block_head)
+        return ERR_BLOCK_LIST_NULL;
+    if(f_desc->block_head == f_desc->block_tail)
+        return ERR_BLOCK_LIST_EMPTY;
+    
+    block = f_desc->block_head->next;
+
+    lock_t_lock(f_desc->block_list_lock);
+
+    if(block == f_desc->block_tail)
+        f_desc->block_tail = f_desc->block_head;
+    f_desc->block_head->next = block->next;
+
+    unlock_t_lock(f_desc->block_list_lock);
+    
+    return block;
 }
 
-int lock_t_lock(t_lock *lock)
-{
-    return pthread_mutex_lock(lock);
+void handle_thread(void *args)
+{   
+    transfer_session    *session;
+    file_desc           *f_desc;
+    file_block_desc     *b_desc;
+    
+    session = (transfer_session *)args;
+    f_desc = session->f_desc;
+
+    for(;;)
+    {
+        b_desc = get_first_block(f_desc);
+        if(b_desc == ERR_BLOCK_LIST_NULL)
+            return;
+        else if(b_desc == ERR_BLOCK_LIST_EMPTY)
+        {
+            session->state = STATE_TRANSFER_FIN;
+            return; 
+        }
+        
+        printf("block:%d\n", b_desc->index->block_index);
+            
+    }
+
+
 }
 
-int unlock_t_lock(t_lock *lock)
-{
-    return pthread_mutex_unlock(lock);
-}
 
-int init_sem(t_sem *sem, unsigned char count)
-{
-    return sem_init(sem, 0, count);
-}
 
-int t_release(t_sem *sem)
-{
-    return sem_post(sem);
-}
-
-int t_aquire(t_sem *sem)
-{
-    return sem_wait(sem);
-}
 
 

@@ -16,6 +16,8 @@ int main(int argc, char *argv[])
     login_frame *f_login;
     file_desc *f_desc;
 
+    t_thread t_handle;
+
     char *login_buf;
 
     unsigned char buf[BUF_SIZE];
@@ -93,7 +95,7 @@ int main(int argc, char *argv[])
             }
 
             session.state = STATE_LOGIN;
-            printf("login complete!");
+            printf("login complete!\n");
 re_conn:
             if(f_header)
                 t_free(f_header);
@@ -117,7 +119,7 @@ re_conn:
             /* build frame */
             frame_len = frame_build(f_header, buf_file_info, data_len, buf_send);
 
-            /* send login frame */
+            /* send file info frame */
             len = send(session.fd, buf_send, frame_len, 0);
             
             /* wait for server frame */
@@ -148,7 +150,12 @@ re_conn:
                 f_desc->file_id = *((unsigned short *)(\
                         buf + sizeof(frame_header) + 2 + file_name_len));
                 f_desc->file_name = buf_file_name;
+                /* init file descritpor */
                 init_send_file(f_desc);
+                session.f_desc = f_desc;
+                /* create threads */
+                create_thread(&t_handle, handle_thread, &session);
+                session.state = STATE_TRANSFER;
                 break;
             case FRAME_CONTROL_CONTINUE:
                 break;
@@ -164,6 +171,11 @@ re_login:
 
             break;
         case STATE_TRANSFER:
+            //printf("transfering\n");
+            break;
+        case STATE_TRANSFER_FIN:
+            printf("transfer finished\n");
+            return;
             break;
         default:
             break;
