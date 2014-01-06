@@ -1,6 +1,10 @@
 #ifndef _TRANS_H_
 #define _TRANS_H_
 
+#define DEBUG
+#undef DEBUG
+
+
 #include <stdio.h>
 #include <string.h>
 #include "log.h"
@@ -22,6 +26,7 @@
 #define FILE_NAME_MAX 256
 #define CONNECT_DELAY_SECONDS 10
 #define LEN_HEADER 2
+#define THREAD_COUNT 3
 
 #define TRAIN_NO_LEN            20
 #define FRAME_DATA_LEN          2048

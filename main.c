@@ -16,7 +16,7 @@ int main(int argc, char *argv[])
     login_frame *f_login;
     file_desc *f_desc;
 
-    t_thread t_handle;
+    t_thread t_handle[THREAD_COUNT];
 
     char *login_buf;
 
@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
     int buf_offset = 0;
     int fd;
     int code = 0;
-    unsigned char file_name_len = 0;
+    unsigned char file_name_len = 0, t_count = 0;
     
     init_socket(&session, port, ip_addr);
 
@@ -154,7 +154,8 @@ re_conn:
                 init_send_file(f_desc);
                 session.f_desc = f_desc;
                 /* create threads */
-                create_thread(&t_handle, handle_thread, &session);
+                for(t_count = 0; t_count < 3; t_count++)
+                    create_thread(&t_handle[t_count], read_thread, &session);
                 session.state = STATE_TRANSFER;
                 break;
             case FRAME_CONTROL_CONTINUE:

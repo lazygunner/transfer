@@ -38,3 +38,26 @@ int create_thread(t_thread *tid, void *(*func)(void), void *args)
     return pthread_create(tid, NULL, func, args);
 #endif
 }
+/*
+int init_thread_pool(t_thread_pool *t_pool, int count)
+{
+    int i = 0;
+    t_pool = (t_thread_pool)t_malloc(sizeof(t_thread_pool));
+    t_pool->thread_count = count;
+    t_pool->avail_array = (unsigned char *)t_malloc(count * sizeof(char));
+    t_pool->thread_array = (t_thread **)t_malloc(count * sizeof(t_thread *));
+    t_pool->thread_sem = (t_sem *)t_malloc(sizeof(t_sem));
+
+    for(i = 0; i < count; i++)
+    {   
+        t_pool->avail_array[i] = 1; 
+        t_pool->thread_array[i] = (t_thread *)malloc(sizeof(t_thread));
+    }
+    init_sem(t_pool->thread_sem, count);
+    
+}
+
+
+
+
+*/
