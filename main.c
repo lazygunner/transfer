@@ -3,7 +3,8 @@
 #include "file.h"
 
 char *ip_addr = "192.168.2.158";
-unsigned short port = 8877;
+unsigned short port = 6260;
+unsigned short data_port = 6160;
 char *file_name = "test.txt";
 char *file_path = "files/";
 
@@ -17,6 +18,7 @@ int main(int argc, char *argv[])
     file_desc *f_desc;
 
     t_thread t_handle[THREAD_COUNT];
+    t_thread t_send;
 
     char *login_buf;
 
@@ -33,7 +35,7 @@ int main(int argc, char *argv[])
     int code = 0;
     unsigned char file_name_len = 0, t_count = 0;
     
-    init_socket(&session, port, ip_addr);
+    init_socket(&session, ip_addr, port, data_port);
 
 
     for(;;)
@@ -42,7 +44,7 @@ int main(int argc, char *argv[])
         switch (session.state)
         {
         case STATE_WAIT_CONN:
-            if((session.fd = session.connect(&session)) < 0)
+            if(session.connect(&session) < 0)
             {
                 t_log("connect to server failed!");
                 DELAY(CONNECT_DELAY_SECONDS);
@@ -150,11 +152,15 @@ re_conn:
                 f_desc->file_id = *((unsigned short *)(\
                         buf + sizeof(frame_header) + 2 + file_name_len));
                 f_desc->file_name = buf_file_name;
+                /* init send msg queue */
+                f_desc->qid = create_msg_q();
                 /* init file descritpor */
                 init_send_file(f_desc);
                 session.f_desc = f_desc;
-                /* create threads */
-                for(t_count = 0; t_count < 3; t_count++)
+                /* init send thread */
+                create_thread(&t_send, send_thread, &session);
+                /* init read threads */
+                for(t_count = 0; t_count < THREAD_COUNT; t_count++)
                     create_thread(&t_handle[t_count], read_thread, &session);
                 session.state = STATE_TRANSFER;
                 break;
@@ -175,6 +181,8 @@ re_login:
             //printf("transfering\n");
             break;
         case STATE_TRANSFER_FIN:
+            destroy_msg_q(session.f_desc->qid);
+            session.f_desc->qid = -1;
             printf("transfer finished\n");
             return;
             break;

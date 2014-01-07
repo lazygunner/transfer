@@ -84,9 +84,14 @@ typedef struct file_desc
     file_block_desc *block_head;
     file_block_desc *block_tail;
     t_lock          *block_list_lock;
+    int             qid;
 }file_desc;
 
-
+typedef struct file_frame_msg_tag
+{
+    unsigned int    msg_type;
+    char            msg_buf[4];
+}file_frame_msg;
 
 
 typedef struct transfer_session_tag transfer_session;
@@ -99,15 +104,19 @@ struct transfer_session_tag
     char *directory;
 
 
-    unsigned int port;
+    unsigned int control_port;
+    unsigned int data_port;
     int state;
     int fd;
+    int data_fd;
     unsigned char train_no_len;
     unsigned char *train_no;
 
     
     void *remote_addr;
     size_t remote_addr_len;
+    struct sockaddr_in remote_con_addr;
+    struct sockaddr_in remote_data_addr;
     int ai_family;
 
     void *protocol_data;

@@ -1,4 +1,7 @@
 #include "thread.h"
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/types.h>
 
 
 int init_lock(t_lock *lock)
@@ -38,6 +41,31 @@ int create_thread(t_thread *tid, void *(*func)(void), void *args)
     return pthread_create(tid, NULL, func, args);
 #endif
 }
+
+int create_msg_q()
+{
+    key_t key;
+    int qid;
+
+    if(-1 == (key = ftok(".", 'a')))   // key  
+    {  
+        perror("Create key error!\n");  
+        return NULL;  
+    } 
+
+    if(-1 == (qid = msgget(key, IPC_CREAT|IPC_EXCL|0666)))      
+    {  
+        perror("message queue already exitsted!\n");  
+        return NULL;  
+    }  
+    return qid;
+}
+
+int destroy_msg_q(int qid)
+{
+    msgctl(qid, IPC_RMID, NULL);
+}
+
 /*
 int init_thread_pool(t_thread_pool *t_pool, int count)
 {
