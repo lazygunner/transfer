@@ -174,7 +174,9 @@ typedef struct login_frame_tag{
 #define FRAME_CONTROL_CONTINUE          0X03
 #define FRAME_CONTROL_FILE_INFO         0X04
 #define FRAME_CONTROL_DOWNLOAD          0X05
-#define FRAME_DATA_MONITOR              0X06
+
+#define FRAME_DATA_MONITOR              0X01
+
 #define FRAME_SUB_TYPE_MAX              0X07
 
 #define FRAME_TAIL              0xFF
@@ -192,7 +194,7 @@ typedef struct login_frame_tag{
 
 int connect_server(transfer_session *session);
 
-unsigned short get_crc_code(const char *buf, unsigned int len);
+unsigned short get_crc_code(const unsigned char *buf, unsigned int len);
 #ifdef VXWORKS
     #define DELAY(seconds) 
     #define HTONS(host) host

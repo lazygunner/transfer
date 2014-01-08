@@ -58,7 +58,17 @@ int connect_server(transfer_session *request)
 
 }
 
+int send_file_data(transfer_session *session, char *buf_send, int data_len)
+{
+    int send_len;
+    socklen_t len;
 
+    len = sizeof(struct sockaddr);
+    send_len = sendto(session->data_fd, buf_send, data_len, 0,\
+                (struct sockaddr*)&(session->remote_data_addr), len);
+
+    return send_len;
+}
 
 
 

@@ -37,7 +37,7 @@ const unsigned short crc_table[256] =
         0x6E17, 0x7E36, 0x4E55, 0x5E74, 0x2E93, 0x3EB2, 0x0ED1, 0x1EF0
 };
 
-unsigned short get_crc_code(const char *buf, unsigned int len)
+unsigned short get_crc_code(const unsigned char *buf, unsigned int len)
 {
     unsigned short i, j, crc = 0;
 

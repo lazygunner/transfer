@@ -10,3 +10,7 @@ crc.o: crc.c crc.o
 frame.o: frame.c frame.o
 file.o: file.c file.o
 thread.o: thread.c thread.o
+
+.PHONY : clean
+clean:
+	-rm *.o

@@ -5,9 +5,12 @@
 
 #define FILE_BLOCK_SIZE     1024 * 1024     /* 1MB */
 #define FILE_FRAME_SIZE     1024 * 2        /* 2KB */
+#define MAX_FRAME_COUNT     512
 
 #define FILE_INFO_LEN       9                   /* 4 + 4 + 1 */     
+#define THREAD_COUNT 3
 
+#define DEBUG 1
 static int get_file_size(FILE *fp)
 {
     int size = 0;
@@ -81,14 +84,6 @@ int init_send_file(file_desc *f_desc)
 
     return init_send_list(f_desc);
     
-}
-
-int read_thread()
-{
-    
-
-
-
 }
 
 int get_file_info(char *path, unsigned char **buf)
@@ -184,6 +179,177 @@ static file_block_desc *get_first_block(file_desc *f_desc)
     return block;
 }
 
+void read_thread(void *args)
+{
+    transfer_session    *session;
+    file_desc           *f_desc;
+    file_block_desc     *b_desc;
+    file_frame_data     *file_frame;
+    frame_index         *f_index;
+    FILE                *fp;
+    file_frame_msg      f_msg;
+    int                 err;
+
+    char test[10];
+
+    int i = 0;
+    unsigned int read_count = 0;
+    
+    session = (transfer_session *)args;
+    f_desc = session->f_desc;
+
+    if(NULL == (fp = fopen(f_desc->file_name, "r")))
+    {
+        t_log("open file error");
+        return;
+    }
+   
+    for(;;)
+    {
+        b_desc = get_first_block(f_desc);
+        if(b_desc == ERR_BLOCK_LIST_NULL)
+        {
+            sleep(10);
+            continue;
+        }
+        else if(b_desc == ERR_BLOCK_LIST_EMPTY)
+        {
+            //session->state = STATE_TRANSFER_FIN;
+            sleep(10);
+            continue;
+        }
+        else
+        {
+            if(b_desc->retry_flag == ORIGIN_FRAME)
+            {
+                f_index = b_desc->index;
+                for(i = 0; i < MAX_FRAME_COUNT; i++)
+                {
+                    file_frame = (file_frame_data *)t_malloc(sizeof(file_frame_data));
+                    file_frame->file_id = f_desc->file_id;
+                    file_frame->block_index = f_index->block_index;
+                    file_frame->frame_index = i + 1;
+                    
+                    if(fseek(fp, (f_index->block_index - 1) * FILE_BLOCK_SIZE +\
+                        i * FILE_FRAME_SIZE, SEEK_SET) < 0)
+                    {
+                        printf("seek out of range");
+                        t_free(file_frame);
+                        return;
+                    }
+                    read_count = fread(file_frame->data, FILE_FRAME_SIZE, 1, fp);
+                    if(read_count < 0)
+                        memset(file_frame->data + read_count, 0xFF, FILE_FRAME_SIZE - read_count);
+                    
+                    
+                    f_msg.msg_type = 1;/* must be > 0 */
+                    memcpy(f_msg.msg_buf, &file_frame, sizeof(file_frame));
+                    while((err = msgsnd(f_desc->qid, &f_msg, sizeof(file_frame_msg), 0)) < 0)  
+                    {  
+                            perror("msg closed! quit the system!");
+                            printf("%d %d\n", f_desc->qid, f_msg.msg_type);
+                    } 
+#if 0       
+                    memset(test, 0, 10);
+                    memcpy(test, file_frame->data, 4);
+                    memcpy(test + 5, file_frame->data + 2044, 4);
+                    test[4] = ' ';
+                    printf("%s\n", test);
+                  
+#endif                    
+                }
+            }
+
+        }
+
+        
+//        printf("block:%d\n", b_desc->index->block_index);
+            
+    }
+
+
+
+}
+
+void send_thread(void *args)
+{
+    transfer_session    *session;
+    file_desc           *f_desc;
+    file_block_desc     *b_desc;
+    file_frame_data     *file_frame;
+    frame_index         *f_index;
+    frame_header        *f_header;
+    int                 qid;
+    file_frame_msg      f_msg;
+    int                 err;
+    int                 waiting_count = 10;
+    int                 frame_len = 0, len = 0;
+
+    char                buf_send[2061];
+#if DEBUG
+    char test[10];
+    FILE *fp;
+    fp = fopen("receive.txt", "w");
+#endif
+
+    
+    session = (transfer_session *)args;
+    f_desc = session->f_desc;
+
+
+    if((qid = f_desc->qid) < 0)
+    {
+        printf("msg q error");
+        return;
+    }
+
+    frame_header_init(FRAME_TYPE_DATA, FRAME_DATA_MONITOR, &f_header);
+    for(;;)
+    {
+            /* get frame from msg q */
+            if ((err = msgrcv(qid, &f_msg, sizeof(file_frame_msg), 1, IPC_NOWAIT)) < 0)  
+            {  
+                    perror("recv msg error!");
+                    if(waiting_count == 0)
+                    {
+                    #if DEBUG
+                        fclose(fp);
+                    #endif
+                        t_free(f_header);
+                        session->state = STATE_TRANSFER_FIN;
+                        return;
+                    }
+                    else
+                        waiting_count--;
+                    sleep(1);
+                    continue;
+            }
+            waiting_count = 10;
+            file_frame = *((file_frame_data **)(f_msg.msg_buf));
+            /* encapusulate frame */
+            frame_len = frame_build(f_header, file_frame, sizeof(file_frame_data), buf_send);
+            /* send file info frame */
+            len = send_file_data(session, buf_send, frame_len);
+            
+            
+#if DEBUG
+            memset(test, 0, 10);
+            memcpy(test, file_frame->data, 4);
+            memcpy(test + 5, file_frame->data + 2044, 4);
+            test[4] = ' ';
+            printf("%s\n", test);
+            fseek(fp, (file_frame->block_index - 1) * FILE_BLOCK_SIZE +\
+                    (file_frame->frame_index - 1) * FILE_FRAME_SIZE, SEEK_SET);
+            fwrite(file_frame->data, 2048, 1, fp);
+#endif
+            /* free the data after send */
+            t_free(file_frame);
+
+    }
+
+}
+
+
 void handle_thread(void *args)
 {   
     transfer_session    *session;
@@ -192,22 +358,6 @@ void handle_thread(void *args)
     
     session = (transfer_session *)args;
     f_desc = session->f_desc;
-
-    for(;;)
-    {
-        b_desc = get_first_block(f_desc);
-        if(b_desc == ERR_BLOCK_LIST_NULL)
-            return;
-        else if(b_desc == ERR_BLOCK_LIST_EMPTY)
-        {
-            session->state = STATE_TRANSFER_FIN;
-            return; 
-        }
-        
-        printf("block:%d\n", b_desc->index->block_index);
-            
-    }
-
 
 }
 
