@@ -87,11 +87,11 @@ typedef struct file_desc
     int             qid;
 }file_desc;
 
-typedef struct file_frame_msg_tag
+typedef struct q_msg_tag
 {
     unsigned int    msg_type;
     char            msg_buf[4];
-}file_frame_msg;
+}q_msg;
 
 
 typedef struct transfer_session_tag transfer_session;
@@ -118,6 +118,9 @@ struct transfer_session_tag
     struct sockaddr_in remote_con_addr;
     struct sockaddr_in remote_data_addr;
     int ai_family;
+    
+    int package_qid;
+
 
     void *protocol_data;
 
@@ -181,14 +184,18 @@ typedef struct login_frame_tag{
 
 #define FRAME_TAIL              0xFF
 
-
+/* Msg Type */
+#define MSG_TYPE_PACKAGE        0x01
+#define MSG_TYPE_FILE_FRAME     0x02
 
 /* Transfer states */
 #define STATE_WAIT_CONN         0x00010000
 #define STATE_CONNECTED         0x00010001
-#define STATE_LOGIN             0x00010002
-#define STATE_TRANSFER          0x00010003
-#define STATE_TRANSFER_FIN      0x00010004
+#define STATE_LOGIN_SENT        0x00010002
+#define STATE_LOGIN             0x00010003
+#define STATE_FILE_INFO_SENT    0x00010004
+#define STATE_TRANSFER          0x00010005
+#define STATE_TRANSFER_FIN      0x00010006
 
 
 
@@ -210,7 +217,5 @@ unsigned short get_crc_code(const unsigned char *buf, unsigned int len);
 
 #endif
 
-#define t_malloc(x) malloc(x)
-#define t_free(x) free(x)
 
 #endif

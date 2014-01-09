@@ -88,7 +88,9 @@ int init_send_file(file_desc *f_desc)
 
 int get_file_info(char *path, unsigned char **buf)
 {
-    struct dirent *ent;
+    DIR *dir = NULL;
+    FILE *fp = NULL;
+    struct dirent *ent = NULL;
     struct stat file_stat;
     unsigned short name_len = 0;
     unsigned short total_len = 0;
@@ -96,20 +98,16 @@ int get_file_info(char *path, unsigned char **buf)
     unsigned int file_size = 0;
     unsigned int offset = 0;
     unsigned char file_count = 0;
-    DIR *dir;
-    FILE *fp;
-    char path_buf[256];
-    char *full_path;
+    char path_buf[128];
     
-    full_path = &path_buf[0];
-    dir=opendir(path);
+    dir = opendir(path);
     while (NULL != (ent=readdir(dir)))
     {
         if(strcmp(ent->d_name, "..") == 0 || strcmp(ent->d_name, ".") == 0)
             continue;
-        memset(full_path, 0, 256);
-        strcpy(full_path + strlen(strcpy(full_path, path)), ent->d_name);
-        if(fp = fopen(full_path, "r"))
+        memset(path_buf, 0, 128);
+        strcpy(path_buf + strlen(strcpy(path_buf, path)), ent->d_name);
+        if(fp = fopen(path_buf, "r"))
         {
             name_len = strlen(ent->d_name);
             total_len += FILE_INFO_LEN + name_len;
@@ -120,12 +118,12 @@ int get_file_info(char *path, unsigned char **buf)
     close(dir);
     
     //n files and count(n)
-    if (NULL == (*buf = (unsigned char*)t_malloc(total_len + 1)))
+    if ((*buf = (unsigned char *)t_malloc(total_len + 1)) == NULL)
         return -1;
     
     dir=opendir(path);
     /* 1 for file count */
-    *buf[0] = file_count;
+    (*buf)[0] = file_count;
     offset++;
 
     while (NULL != (ent=readdir(dir)))
@@ -133,27 +131,28 @@ int get_file_info(char *path, unsigned char **buf)
         if(strcmp(ent->d_name, "..") == 0 || strcmp(ent->d_name, ".") == 0)
             continue;
         name_len = strlen(ent->d_name);
-        memset(full_path, 0, 256);
+        memset(path_buf, 0, 128);
 
-        strcpy(full_path + strlen(strcpy(full_path, path)), ent->d_name);
+        strcpy(path_buf + strlen(strcpy(path_buf, path)), ent->d_name);
         /*     mod time = st_mtime
             access time = st_atime*/
        
-       if(stat(full_path, &file_stat) != -1)
+       if(stat(path_buf, &file_stat) != -1)
         {
             mod_time = (unsigned int)file_stat.st_mtime;
             file_size = (unsigned int)file_stat.st_size;
-            memcpy(*buf + offset, &file_size, 4);
+            memcpy((*buf) + offset, &file_size, 4);
             offset += 4;
-            memcpy(*buf + offset, &file_stat, 4);
+            memcpy((*buf) + offset, &file_stat, 4);
             offset += 4;
-            memcpy(*buf + offset, (char *)&name_len, 1);
+            memcpy((*buf) + offset, (char *)&name_len, 1);
             offset += 1;
-            memcpy(*buf + offset, ent->d_name, name_len);
+            memcpy((*buf) + offset, ent->d_name, name_len);
             offset += name_len;
         }
     } 
     close(dir);
+    
     return offset;
 }
 
@@ -187,7 +186,7 @@ void read_thread(void *args)
     file_frame_data     *file_frame;
     frame_index         *f_index;
     FILE                *fp;
-    file_frame_msg      f_msg;
+    q_msg               f_msg;
     int                 err;
 
     char test[10];
@@ -242,9 +241,9 @@ void read_thread(void *args)
                         memset(file_frame->data + read_count, 0xFF, FILE_FRAME_SIZE - read_count);
                     
                     
-                    f_msg.msg_type = 1;/* must be > 0 */
+                    f_msg.msg_type = MSG_TYPE_FILE_FRAME;/* must be > 0 */
                     memcpy(f_msg.msg_buf, &file_frame, sizeof(file_frame));
-                    while((err = msgsnd(f_desc->qid, &f_msg, sizeof(file_frame_msg), 0)) < 0)  
+                    while((err = send_to_msg_q(f_desc->qid, &f_msg, sizeof(q_msg), 0)) < 0)  
                     {  
                             perror("msg closed! quit the system!");
                             printf("%d %d\n", f_desc->qid, f_msg.msg_type);
@@ -280,7 +279,7 @@ void send_thread(void *args)
     frame_index         *f_index;
     frame_header        *f_header;
     int                 qid;
-    file_frame_msg      f_msg;
+    q_msg               f_msg;
     int                 err;
     int                 waiting_count = 10;
     int                 frame_len = 0, len = 0;
@@ -307,7 +306,8 @@ void send_thread(void *args)
     for(;;)
     {
             /* get frame from msg q */
-            if ((err = msgrcv(qid, &f_msg, sizeof(file_frame_msg), 1, IPC_NOWAIT)) < 0)  
+            if ((err = recv_msg_q(qid, &f_msg, sizeof(q_msg),\
+                    MSG_TYPE_FILE_FRAME, IPC_NOWAIT)) < 0)  
             {  
                     perror("recv msg error!");
                     if(waiting_count == 0)

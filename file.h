@@ -11,5 +11,7 @@ int init_send_file(file_desc *f_desc);
 int get_file_info(char *path, unsigned char **buf);
 void read_thread(void *args);
 void send_thread(void *args);
+void receive_handler(void *args);
+
 
 #endif

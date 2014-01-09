@@ -6,23 +6,40 @@ char *ip_addr = "192.168.2.158";
 unsigned short port = 6260;
 unsigned short data_port = 6160;
 char *file_name = "test.txt";
-char *file_path = "files/";
 
 
+void main_thread(void *args);
 int main(int argc, char *argv[])
 {
+    t_thread t_main;
+    int a;
+    create_thread(&t_main, main_thread, NULL);
+    for(;;)
+    {
+        a++;
+    }
+
+}
+
+void main_thread(void *args)
+{
+    
+    char *file_path = "files/";
+
     transfer_session session;
-    transfer_frame *f_send, *f_recv;
-    frame_header *f_header, *recv_header;
-    login_frame *f_login;
-    file_desc *f_desc;
+    transfer_frame *f_send = NULL, *f_recv = NULL;
+    frame_header *f_header = NULL, *recv_header = NULL;
+    login_frame *f_logini = NULL;
+    file_desc *f_desc = NULL;
 
     t_thread t_handle[THREAD_COUNT];
-    t_thread t_send;
+    t_thread t_send, t_recv;
+
+    q_msg pkg_msg;
 
     char *login_buf;
 
-    unsigned char buf[BUF_SIZE];
+    unsigned char *buf = NULL;
     unsigned char buf_send[BUF_SIZE];
     unsigned char buf_file_name[FILE_NAME_MAX];
     unsigned char *buf_file_info;
@@ -41,6 +58,19 @@ int main(int argc, char *argv[])
     for(;;)
     {
         //printf("Enter string to send:");
+        /*
+        if (buf)
+        {
+            printf("free ptr:%p\n", buf);
+            t_free(buf);
+        }
+        */
+        if(recv_msg_q(session.package_qid, &pkg_msg, sizeof(q_msg),\
+                    MSG_TYPE_PACKAGE, IPC_NOWAIT) < 0)
+            buf = NULL;
+        else
+            buf = *((unsigned char **)(pkg_msg.msg_buf));
+            
         switch (session.state)
         {
         case STATE_WAIT_CONN:
@@ -50,8 +80,10 @@ int main(int argc, char *argv[])
                 DELAY(CONNECT_DELAY_SECONDS);
                 break;
             }
-
+            
+            create_thread(&t_recv, receive_handler, &session);
             session.state = STATE_CONNECTED;
+            //session.state = STATE_LOGIN;
             break;
         case STATE_CONNECTED:
             if (session.fd < 0)
@@ -69,7 +101,7 @@ int main(int argc, char *argv[])
             }
             
             /* init frame data area */
-            if((login_buf = (char *)malloc(1 + session.train_no_len)) == NULL) 
+            if((login_buf = (char *)t_malloc(1 + session.train_no_len)) == NULL) 
             {
                 t_log("malloc login_buf frame error!");
                 goto re_conn;
@@ -77,18 +109,23 @@ int main(int argc, char *argv[])
             memset(login_buf, session.train_no_len, 1);
             memcpy(login_buf + 1, session.train_no, session.train_no_len);
             data_len = session.train_no_len + 1;
-            
             /* build sending frame */
             frame_len = frame_build(f_header, login_buf, data_len, buf_send);
 
             /* send login frame */
             len = send(session.fd, buf_send, frame_len, 0);
 
-            /* waiting for login confirm frame */
-            if ((recv_len = recv_frame(session.fd, buf)) <= 0)
-                goto re_conn;
+            session.state = STATE_LOGIN_SENT;
+            break;
 
-            recv_header = (frame_header *)buf;
+        case STATE_LOGIN_SENT:
+            /* waiting for login confirm frame */
+            //if ((recv_len = recv_frame(session.fd, buf)) <= 0)
+            //    goto re_conn;
+            if(buf)
+                recv_header = (frame_header *)buf;
+            else
+                goto re_conn;
             if (recv_header->type != FRAME_TYPE_CONTROL ||\
                 recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
             {
@@ -100,9 +137,15 @@ int main(int argc, char *argv[])
             printf("login complete!\n");
 re_conn:
             if(f_header)
+            {
                 t_free(f_header);
+                f_header = NULL;
+            }
             if(login_buf)
+            {
                 t_free(login_buf);
+                login_buf = NULL;
+            }
             break;
             
         case STATE_LOGIN:
@@ -123,12 +166,17 @@ re_conn:
 
             /* send file info frame */
             len = send(session.fd, buf_send, frame_len, 0);
-            
+            session.state = STATE_FILE_INFO_SENT;
+            break;
+        case STATE_FILE_INFO_SENT:
             /* wait for server frame */
-            if ((recv_len = recv_frame(session.fd, buf)) <= 0)
-                goto re_login;
+            //if ((recv_len = recv_frame(session.fd, buf)) <= 0)
+            //    goto re_login;
+            if(buf)
+                recv_header = (frame_header *)buf;
+            else
+                break;
 
-            recv_header = (frame_header *)buf;
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
                 t_log("receive error");
