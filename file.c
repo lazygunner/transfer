@@ -156,6 +156,23 @@ int get_file_info(char *path, unsigned char **buf)
     return offset;
 }
 
+static int add_block_to_list_head(file_desc *f_desc, file_block_desc *blk)
+{
+    file_block_desc *p_blk;
+    
+    if(!f_desc || !f_desc->block_head)
+        return ERR_BLOCK_LIST_NULL;
+    
+    p_blk = blk;
+    while(p_blk->next)
+        p_blk = p_blk->next;
+
+    p_blk->next = f_desc->block_head->next;
+    f_desc->block_head->next = blk;
+
+    return RET_SUCCESS;
+}
+
 static file_block_desc *get_first_block(file_desc *f_desc)
 {
     file_block_desc *block;
@@ -178,21 +195,55 @@ static file_block_desc *get_first_block(file_desc *f_desc)
     return block;
 }
 
+static int read_file_to_msg_q(frame_index *f_index, file_desc *f_desc, FILE *fp)
+{
+
+    file_frame_data     *file_frame;
+    q_msg               f_msg;
+    unsigned int        read_count = 0;
+
+    if(fseek(fp, (f_index->block_index - 1) * FILE_BLOCK_SIZE +\
+                (f_index->frame_index -1) * FILE_FRAME_SIZE, SEEK_SET) < 0)
+    {
+        printf("seek out of range");
+        return -1;
+    }
+
+    file_frame = (file_frame_data *)t_malloc(sizeof(file_frame_data));
+    file_frame->file_id = f_desc->file_id;
+    file_frame->block_index = f_index->block_index;
+    file_frame->frame_index = f_index->frame_index;
+
+
+    read_count = fread(file_frame->data, FILE_FRAME_SIZE, 1, fp);
+    if(read_count < FILE_FRAME_SIZE)
+        memset(file_frame->data + read_count,\
+                0xFF, FILE_FRAME_SIZE - read_count);
+
+
+    f_msg.msg_type = MSG_TYPE_FILE_FRAME; /* must be > 0 */
+    memcpy(f_msg.msg_buf, &file_frame, sizeof(file_frame));
+    while(send_to_msg_q(f_desc->qid,&f_msg, sizeof(q_msg), 0) < 0)  
+    {  
+        perror("msg closed! quit the system!");
+        printf("%d %d\n", f_desc->qid, f_msg.msg_type);
+    } 
+
+    return RET_SUCCESS;
+}
+
 void read_thread(void *args)
 {
     transfer_session    *session;
     file_desc           *f_desc;
     file_block_desc     *b_desc;
-    file_frame_data     *file_frame;
     frame_index         *f_index;
     FILE                *fp;
-    q_msg               f_msg;
     int                 err;
 
     char test[10];
 
     int i = 0;
-    unsigned int read_count = 0;
     
     session = (transfer_session *)args;
     f_desc = session->f_desc;
@@ -224,39 +275,35 @@ void read_thread(void *args)
                 f_index = b_desc->index;
                 for(i = 0; i < MAX_FRAME_COUNT; i++)
                 {
-                    file_frame = (file_frame_data *)t_malloc(sizeof(file_frame_data));
-                    file_frame->file_id = f_desc->file_id;
-                    file_frame->block_index = f_index->block_index;
-                    file_frame->frame_index = i + 1;
-                    
-                    if(fseek(fp, (f_index->block_index - 1) * FILE_BLOCK_SIZE +\
-                        i * FILE_FRAME_SIZE, SEEK_SET) < 0)
-                    {
-                        printf("seek out of range");
-                        t_free(file_frame);
-                        return;
-                    }
-                    read_count = fread(file_frame->data, FILE_FRAME_SIZE, 1, fp);
-                    if(read_count < 0)
-                        memset(file_frame->data + read_count, 0xFF, FILE_FRAME_SIZE - read_count);
-                    
-                    
-                    f_msg.msg_type = MSG_TYPE_FILE_FRAME;/* must be > 0 */
-                    memcpy(f_msg.msg_buf, &file_frame, sizeof(file_frame));
-                    while((err = send_to_msg_q(f_desc->qid, &f_msg, sizeof(q_msg), 0)) < 0)  
-                    {  
-                            perror("msg closed! quit the system!");
-                            printf("%d %d\n", f_desc->qid, f_msg.msg_type);
-                    } 
-#if 0       
-                    memset(test, 0, 10);
-                    memcpy(test, file_frame->data, 4);
-                    memcpy(test + 5, file_frame->data + 2044, 4);
-                    test[4] = ' ';
-                    printf("%s\n", test);
-                  
-#endif                    
+                    f_index->frame_index = i;
+                    if(read_file_to_msg_q(f_index, f_desc, fp) < 0)
+                        break;
                 }
+            }
+            else if(b_desc->retry_flag == RETRAN_FRAME)
+            {
+                f_index = b_desc->index;
+                if(f_index->frame_index == 0XFF)
+                {
+                    for(i = 0; i < MAX_FRAME_COUNT; i++)
+                    {
+                        f_index->frame_index = i;
+                        if(read_file_to_msg_q(f_index, f_desc, fp) < 0)
+                            break;
+                    }
+
+                }
+                else
+                {
+                    while(f_index->next)
+                    {
+                        read_file_to_msg_q(f_index, f_desc, fp);
+                        f_index = f_index->next;
+                    }
+
+                }
+
+
             }
 
         }
@@ -349,6 +396,62 @@ void send_thread(void *args)
 
 }
 
+int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
+{
+    unsigned int        re_tran_count = 0, parse_count = 0;
+    unsigned int        offset = 0;
+    unsigned char       *data = NULL;
+    unsigned short      last_block = 0, block_index_no, frame_index_no;
+    file_block_desc     *b_desc;
+    frame_index         *f_index;
+    frame_index         *f_index_next;
+    
+    data = data_buf;
+    re_tran_count = *((unsigned int *)data);
+
+    data += sizeof(unsigned int);
+    /* generate the re transmit block desc */
+    while(parse_count < re_tran_count)
+    {
+        b_desc = (file_block_desc *)t_malloc(sizeof(file_block_desc));
+        b_desc->retry_flag = RETRAN_FRAME;
+        b_desc->next = NULL;
+        f_index = (frame_index *)t_malloc(sizeof(frame_index));
+        b_desc->index = f_index;
+        block_index_no = *((unsigned short *)data);
+        frame_index_no = *((unsigned short *)(data + 2));
+        
+        f_index->block_index = block_index_no;
+        f_index->frame_index = frame_index_no;
+        f_index->next = NULL;
+
+        data += ++parse_count * 4;
+
+        if(frame_index_no == 0xFF)
+            continue;
+        
+        while(parse_count < re_tran_count)
+        {
+            if(*((unsigned short *)data) == block_index_no)
+            {
+                frame_index_no = *((unsigned short *)(data + 2));
+                f_index_next = (frame_index *)t_malloc(sizeof(frame_index));
+                f_index_next->block_index = block_index_no;
+                f_index_next->frame_index = frame_index_no;
+                f_index_next->next = NULL;
+                f_index->next = f_index_next;
+                
+                data += ++parse_count * 4;
+            }
+            else
+                break;
+
+        }
+    }
+
+    add_block_to_list_head(f_desc, b_desc);
+
+}
 
 void handle_thread(void *args)
 {   

@@ -3,6 +3,19 @@
 #include <sys/msg.h>
 #include <sys/types.h>
 
+void *t_malloc(int x)     
+{
+    void *ptr;
+    ptr = malloc(x);
+    //printf("malloc size:%d\n", x);
+    return ptr;
+}
+
+void t_free(void *x)
+{
+    return free(x);
+
+}
 
 int init_lock(t_lock *lock)
 {
@@ -42,12 +55,12 @@ int create_thread(t_thread *tid, void *(*func)(void), void *args)
 #endif
 }
 
-int create_msg_q()
+int create_msg_q(int key_id)
 {
     key_t key;
     int qid;
 
-    if(-1 == (key = ftok(".", 'a')))   // key  
+    if(-1 == (key = ftok(".", key_id)))   // key  
     {  
         perror("Create key error!\n");  
         return NULL;  
@@ -66,6 +79,15 @@ int destroy_msg_q(int qid)
     msgctl(qid, IPC_RMID, NULL);
 }
 
+int send_to_msg_q(int qid, void *buf, int size, int flag)
+{
+    return msgsnd(qid, buf, size, flag);
+}
+
+int recv_msg_q(int qid, void *buf, int size, int msg_type, int flag)
+{
+    return msgrcv(qid, buf, size, msg_type, flag);
+}
 /*
 int init_thread_pool(t_thread_pool *t_pool, int count)
 {

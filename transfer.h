@@ -188,6 +188,10 @@ typedef struct login_frame_tag{
 #define MSG_TYPE_PACKAGE        0x01
 #define MSG_TYPE_FILE_FRAME     0x02
 
+/* Msg queue key id */
+#define MSG_Q_KEY_ID_RECV       0x01
+#define MSG_Q_KEY_ID_DATA       0x02
+
 /* Transfer states */
 #define STATE_WAIT_CONN         0x00010000
 #define STATE_CONNECTED         0x00010001

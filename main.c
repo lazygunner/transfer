@@ -43,6 +43,7 @@ void main_thread(void *args)
     unsigned char buf_send[BUF_SIZE];
     unsigned char buf_file_name[FILE_NAME_MAX];
     unsigned char *buf_file_info;
+    unsigned char *buf_pos;
 
 
     int len = 0, data_len = 0, frame_len = 0;
@@ -201,7 +202,7 @@ re_conn:
                         buf + sizeof(frame_header) + 2 + file_name_len));
                 f_desc->file_name = buf_file_name;
                 /* init send msg queue */
-                f_desc->qid = create_msg_q();
+                f_desc->qid = create_msg_q(MSG_Q_KEY_ID_DATA);
                 /* init file descritpor */
                 init_send_file(f_desc);
                 session.f_desc = f_desc;
@@ -213,6 +214,23 @@ re_conn:
                 session.state = STATE_TRANSFER;
                 break;
             case FRAME_CONTROL_CONTINUE:
+                /* save the file info */
+                buf_pos = buf;
+                buf_pos += sizeof(frame_header);
+                file_name_len = *buf_pos;
+                buf_pos += 1;
+                memcpy(buf_file_name + strlen(strcpy(buf_file_name,\
+                        file_path)), buf_pos, file_name_len);
+                
+                buf_pos += file_name_len;
+                f_desc->file_id = *((unsigned short *)buf_pos);
+                f_desc->file_name = buf_file_name;
+
+                /* file name len:1, file_name:n, file_id:2 */
+                buf_pos += 2;
+
+                /* skip the data before real re_tran data */
+                handle_re_transimit_frame(session.f_desc, buf_pos);
                 break;
             default:
                 break;
@@ -227,6 +245,34 @@ re_login:
             break;
         case STATE_TRANSFER:
             //printf("transfering\n");
+            if(buf)
+                recv_header = (frame_header *)buf;
+            else
+                break;
+
+            if (recv_header->type != FRAME_TYPE_CONTROL)
+            {
+                t_log("receive error");
+                goto re_login;
+            }
+            /* handle the sub type */
+            switch(recv_header->sub_type)
+            {
+            case FRAME_CONTROL_CONTINUE:
+                /* add to transfer list */
+                /* skip the data before real re_tran data */
+                buf_pos = buf;
+                buf_pos += sizeof(frame_header);
+                /* file name len:1, file_name:n, file_id:2 */
+                buf_pos += 1 + buf_pos[0] + 2;
+
+                handle_re_transimit_frame(session.f_desc, buf_pos);
+               
+                break;
+            default:
+                break;
+            }
+
             break;
         case STATE_TRANSFER_FIN:
             destroy_msg_q(session.f_desc->qid);
@@ -236,6 +282,12 @@ re_login:
             break;
         default:
             break;
+        }
+
+        if(buf)
+        {
+            t_free(buf);
+            buf = NULL;
         }
     }
 

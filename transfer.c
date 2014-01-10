@@ -13,7 +13,7 @@ int init_socket(transfer_session *request, char *host_ip,\
     request->fd = 0;
     request->train_no = g_train_no;
     request->train_no_len = strlen(g_train_no);
-    request->package_qid = create_msg_q();
+    request->package_qid = create_msg_q(MSG_Q_KEY_ID_RECV);
 }
 
 int connect_server(transfer_session *request)
@@ -84,19 +84,19 @@ void receive_handler(void *args)
     unsigned char       *handle_package;
     q_msg               package_msg;
     transfer_session    *session;
+    struct timeval timeout={1,0};
 
-    FD_ZERO(&rset);
     session = (transfer_session *)args;
     sock_fd = session->fd;
 
+    FD_ZERO(&rset);
     for(;;)
     {
         FD_SET(sock_fd, &rset);
-
         select(sock_fd + 1, &rset, NULL, NULL, NULL);
-
         if(FD_ISSET(sock_fd, &rset))
         {
+            //printf("fd is set!");
             len = recv(sock_fd, buf, LEN_HEADER, 0);
             
             recv_len = NTOHS(*((unsigned short *)buf));
@@ -125,18 +125,20 @@ void receive_handler(void *args)
             }
 
             handle_package = (unsigned char *)t_malloc(frame_len);
-            printf("malloc ptr:%p len:%d\n", handle_package, frame_len);
+            //printf("malloc ptr:%p len:%d\n", handle_package, frame_len);
             memcpy(handle_package, buf, frame_len);
             memcpy(package_msg.msg_buf, &handle_package,\
                     sizeof(handle_package));
             package_msg.msg_type = MSG_TYPE_PACKAGE;
-
-            while(send_to_msg_q(session->package_qid, &package_msg,\
+            
+            //printf("send to msg q\n");
+            if(send_to_msg_q(session->package_qid, &package_msg,\
                                     sizeof(q_msg), 0) < 0)
             {
                 perror("msg closed! quit the system!");
             }
 
+            //printf("after send to msg q\n");
         }
 
 
