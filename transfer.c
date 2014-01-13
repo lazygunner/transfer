@@ -13,7 +13,6 @@ int init_socket(transfer_session *request, char *host_ip,\
     request->fd = 0;
     request->train_no = g_train_no;
     request->train_no_len = strlen(g_train_no);
-    request->package_qid = create_msg_q(MSG_Q_KEY_ID_RECV);
 }
 
 int connect_server(transfer_session *request)
@@ -147,7 +146,32 @@ void receive_handler(void *args)
 
 }
 
+void send_heartbeat_thread(void *args)
+{
+    transfer_session    *session;
+    int                 ret = 0;
 
+    session = (transfer_session *)args;
+    
+    for(;;)
+    {
+        if(session->state < STATE_LOGIN)
+            return;
+        
+        /* do not return in case of state be changed by others */
+        if((ret = send(session->fd, session->hb, HEARTBEAT_LEN, 0)) !=\
+                HEARTBEAT_LEN)
+        {
+            session->state = STATE_CONN_LOST;
+            printf("connection lost, ret:%d\n", ret);
+        }
+        else
+            printf("send heart beat...\n");
+      
+        sleep(1);
+    }
+
+}
 
 
 

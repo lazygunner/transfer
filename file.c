@@ -21,16 +21,37 @@ static int get_file_size(FILE *fp)
     return size;
 }
 
+file_desc *init_file_desc()
+{
+    file_desc *f_desc = NULL;
+    t_lock *block_list_lock = NULL;
+
+    if(NULL == (f_desc = (file_desc *)t_malloc(sizeof(file_desc))))
+    {
+        t_log("malloc login_buf frame error!");
+        return NULL;
+    }
+
+    if(NULL == (f_desc->block_head =\
+        (file_block_desc *)t_malloc(sizeof(file_block_desc))))
+        return NULL;
+    f_desc->block_head->next = NULL;
+    f_desc->block_tail = f_desc->block_head;
+
+    block_list_lock = t_malloc(sizeof(t_lock));
+    init_lock(block_list_lock);
+    f_desc->block_list_lock = block_list_lock;
+
+    return f_desc;
+    
+}
+
 static int init_send_list(file_desc *f_desc)
 {
     int block_count = 0;
     file_block_desc *block_desc = NULL;
     frame_index *f_index = NULL;
 
-    if(NULL == (f_desc->block_head =\
-        (file_block_desc *)t_malloc(sizeof(file_block_desc))))
-        return ERR_MALLOC;
-    f_desc->block_tail = f_desc->block_head;
 
     while(block_count * FILE_BLOCK_SIZE < f_desc->file_size)
     {
@@ -78,9 +99,6 @@ int init_send_file(file_desc *f_desc)
     if(0 == (f_desc->file_size = get_file_size(f_desc->file_fd)))
         return ERR_FILE_SIZE_ZERO;
     
-    t_lock *block_list_lock = t_malloc(sizeof(t_lock));
-    init_lock(block_list_lock);
-    f_desc->block_list_lock = block_list_lock;
 
     return init_send_list(f_desc);
     
@@ -168,6 +186,9 @@ static int add_block_to_list_head(file_desc *f_desc, file_block_desc *blk)
         p_blk = p_blk->next;
 
     p_blk->next = f_desc->block_head->next;
+    /* link the block_tail to the last block */
+    if(f_desc->block_tail == f_desc->block_head)
+        f_desc->block_tail = p_blk;
     f_desc->block_head->next = blk;
 
     return RET_SUCCESS;
@@ -273,7 +294,7 @@ void read_thread(void *args)
             if(b_desc->retry_flag == ORIGIN_FRAME)
             {
                 f_index = b_desc->index;
-                for(i = 0; i < MAX_FRAME_COUNT; i++)
+                for(i = 1; i <= MAX_FRAME_COUNT; i++)
                 {
                     f_index->frame_index = i;
                     if(read_file_to_msg_q(f_index, f_desc, fp) < 0)
@@ -283,9 +304,9 @@ void read_thread(void *args)
             else if(b_desc->retry_flag == RETRAN_FRAME)
             {
                 f_index = b_desc->index;
-                if(f_index->frame_index == 0XFF)
+                if(f_index->frame_index == 0XFFFF)
                 {
-                    for(i = 0; i < MAX_FRAME_COUNT; i++)
+                    for(i = 1; i <= MAX_FRAME_COUNT; i++)
                     {
                         f_index->frame_index = i;
                         if(read_file_to_msg_q(f_index, f_desc, fp) < 0)
@@ -295,11 +316,11 @@ void read_thread(void *args)
                 }
                 else
                 {
-                    while(f_index->next)
+                    do
                     {
                         read_file_to_msg_q(f_index, f_desc, fp);
                         f_index = f_index->next;
-                    }
+                    }while(f_index);
 
                 }
 
@@ -407,7 +428,7 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
     frame_index         *f_index_next;
     
     data = data_buf;
-    re_tran_count = *((unsigned int *)data);
+    re_tran_count = HTONL(*((unsigned int *)data));
 
     data += sizeof(unsigned int);
     /* generate the re transmit block desc */
@@ -418,38 +439,42 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
         b_desc->next = NULL;
         f_index = (frame_index *)t_malloc(sizeof(frame_index));
         b_desc->index = f_index;
-        block_index_no = *((unsigned short *)data);
-        frame_index_no = *((unsigned short *)(data + 2));
+        block_index_no = HTONS(*((unsigned short *)data));
+        frame_index_no = HTONS(*((unsigned short *)(data + 2)));
         
         f_index->block_index = block_index_no;
         f_index->frame_index = frame_index_no;
         f_index->next = NULL;
 
-        data += ++parse_count * 4;
+        data += 4;
+        parse_count++;
 
-        if(frame_index_no == 0xFF)
-            continue;
+        if(frame_index_no == 0xFFFF)
+            goto add_to_list;
         
         while(parse_count < re_tran_count)
         {
-            if(*((unsigned short *)data) == block_index_no)
+            if(HTONS(*((unsigned short *)data)) == block_index_no)
             {
-                frame_index_no = *((unsigned short *)(data + 2));
+                frame_index_no = HTONS(*((unsigned short *)(data + 2)));
                 f_index_next = (frame_index *)t_malloc(sizeof(frame_index));
                 f_index_next->block_index = block_index_no;
                 f_index_next->frame_index = frame_index_no;
                 f_index_next->next = NULL;
                 f_index->next = f_index_next;
+                f_index = f_index_next;
                 
-                data += ++parse_count * 4;
+                data += 4;
+                parse_count++;
             }
             else
                 break;
 
         }
+add_to_list:
+    add_block_to_list_head(f_desc, b_desc);
     }
 
-    add_block_to_list_head(f_desc, b_desc);
 
 }
 

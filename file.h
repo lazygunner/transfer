@@ -12,6 +12,7 @@ int get_file_info(char *path, unsigned char **buf);
 void read_thread(void *args);
 void send_thread(void *args);
 void receive_handler(void *args);
+void send_heartbeat_thread(void *args);
 
 
 #endif

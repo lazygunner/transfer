@@ -30,6 +30,7 @@
 
 #define TRAIN_NO_LEN            20
 #define FRAME_DATA_LEN          2048
+#define HEARTBEAT_LEN           7
 
 #define ORIGIN_FRAME            0x00
 #define RETRAN_FRAME            0x01
@@ -111,6 +112,8 @@ struct transfer_session_tag
     int data_fd;
     unsigned char train_no_len;
     unsigned char *train_no;
+
+    unsigned char *hb;
 
     
     void *remote_addr;
@@ -200,7 +203,7 @@ typedef struct login_frame_tag{
 #define STATE_FILE_INFO_SENT    0x00010004
 #define STATE_TRANSFER          0x00010005
 #define STATE_TRANSFER_FIN      0x00010006
-
+#define STATE_CONN_LOST         0x00010007
 
 
 int connect_server(transfer_session *session);

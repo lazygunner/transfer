@@ -1,5 +1,7 @@
 #include "transfer.h"
 
+
+
 int frame_header_init(unsigned char type, unsigned char sub_type,\
                         frame_header **header)
 {
@@ -26,6 +28,24 @@ int frame_header_init(unsigned char type, unsigned char sub_type,\
         t_log("type unknown");
         return -1;
     }
+
+}
+/* init heart beat frame */
+int frame_heartbeat_init(unsigned char **heartbeat_buf)
+{
+    frame_header *f_header = NULL;
+
+    frame_header_init(FRAME_TYPE_HEARTBEAT, FRAME_TYPE_HEARTBEAT, &f_header);
+    f_header->length  = HTONS(5);
+
+    heartbeat_buf = (unsigned char *)t_malloc(sizeof(frame_header) + 1);
+
+    memcpy(heartbeat_buf, f_header, sizeof(frame_header));
+    memset(heartbeat_buf + sizeof(frame_header), FRAME_TAIL, 1);
+
+    t_free(f_header);
+
+    return 0;
 
 }
 
