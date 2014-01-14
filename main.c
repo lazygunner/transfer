@@ -13,6 +13,15 @@ int main(int argc, char *argv[])
 {
     t_thread t_main;
     int a;
+
+    sigset_t signal_mask;
+    sigemptyset (&signal_mask);
+    sigaddset (&signal_mask, SIGPIPE);
+    int rc = pthread_sigmask (SIG_BLOCK, &signal_mask, NULL);
+    if (rc != 0) {
+           printf("block sigpipe error\n");
+    } 
+
     create_thread(&t_main, main_thread, NULL);
     for(;;)
     {
@@ -44,10 +53,12 @@ void main_thread(void *args)
     unsigned char buf_file_name[FILE_NAME_MAX];
     unsigned char *buf_file_info;
     unsigned char *buf_pos;
+    unsigned char re_connect = 0;
 
 
     int len = 0, data_len = 0, frame_len = 0;
     unsigned short recv_len = 0;
+    unsigned short file_id = 0;
     int buf_offset = 0;
     int fd;
     int code = 0;
@@ -55,6 +66,7 @@ void main_thread(void *args)
     
     init_socket(&session, ip_addr, port, data_port);
     frame_heartbeat_init(&session.hb);
+    frame_block_sent_init(&session.bs);
 
 
     for(;;)
@@ -76,21 +88,24 @@ void main_thread(void *args)
         switch (session.state)
         {
         case STATE_WAIT_CONN:
+            /* establish the socket connection with server */
             if(session.connect(&session) < 0)
             {
                 t_log("connect to server failed!");
                 DELAY(CONNECT_DELAY_SECONDS);
                 break;
             }
+            /* create receive messsage queue */
             session.package_qid = create_msg_q(MSG_Q_KEY_ID_RECV);
+            /* create receive handler thread */
             create_thread(&t_recv, receive_handler, &session);
             session.state = STATE_CONNECTED;
-            //session.state = STATE_LOGIN;
             break;
         case STATE_CONNECTED:
             if (session.fd < 0)
             {
                 t_log("connection socket lost!");
+                re_connect = 1;
                 goto re_conn;
             }
             
@@ -115,31 +130,20 @@ void main_thread(void *args)
             frame_len = frame_build(f_header, login_buf, data_len, buf_send);
 
             /* send login frame */
-            len = send(session.fd, buf_send, frame_len, 0);
-
-            session.state = STATE_LOGIN_SENT;
-            break;
-
-        case STATE_LOGIN_SENT:
-            /* waiting for login confirm frame */
-            //if ((recv_len = recv_frame(session.fd, buf)) <= 0)
-            //    goto re_conn;
-            if(buf)
-                recv_header = (frame_header *)buf;
-            else
-                goto re_conn;
-            if (recv_header->type != FRAME_TYPE_CONTROL ||\
-                recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
+            if((len = send(session.fd, buf_send, frame_len, 0)) != frame_len)
             {
-                t_log("receive error");
+                t_log("[login]lost connection!\n");
+                re_connect = 1;
                 goto re_conn;
             }
 
-            session.state = STATE_LOGIN;
-            printf("login complete!\n");
-
-            create_thread(&t_heartbeat, send_heartbeat_thread, &session);
-re_conn:
+            session.state = STATE_LOGIN_SENT;
+re_conn:    
+            if(re_connect)
+            {
+                re_connect = 0;
+                session.state = STATE_CONN_LOST;
+            }
             if(f_header)
             {
                 t_free(f_header);
@@ -151,12 +155,33 @@ re_conn:
                 login_buf = NULL;
             }
             break;
+
+        
+        case STATE_LOGIN_SENT:
+            /* waiting for login confirm frame */
+            if(buf)
+                recv_header = (frame_header *)buf;
+            else
+                break;
+
+            if (recv_header->type != FRAME_TYPE_CONTROL ||\
+                recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
+            {
+                t_log("[login_sent]receive error\n");
+                break;
+            }
+
+            session.state = STATE_LOGIN;
+            t_log("login complete!\n");
+            /* send heart beat after login confirmed */
+            create_thread(&t_heartbeat, send_heartbeat_thread, &session);
+            break;
             
         case STATE_LOGIN:
 
             /* init frame header area */
-            if(frame_header_init(FRAME_TYPE_CONTROL, FRAME_CONTROL_FILE_INFO,\
-                    &f_header) < 0)
+            if(frame_header_init(FRAME_TYPE_CONTROL,\
+                FRAME_CONTROL_FILE_INFO, &f_header) < 0)
             {
                 t_log("frame init failed!");
                 goto re_login;
@@ -169,13 +194,33 @@ re_conn:
             frame_len = frame_build(f_header, buf_file_info, data_len, buf_send);
 
             /* send file info frame */
-            len = send(session.fd, buf_send, frame_len, 0);
+            if ((len = send(session.fd, buf_send, frame_len, 0)) != frame_len)
+            {
+                t_log("[login]send file info failed.\n");
+                re_connect = 1;
+                goto re_login;
+            }
             session.state = STATE_FILE_INFO_SENT;
+re_login:
+            printf("relogin\n");
+            if(re_connect)
+            {
+                re_connect = 0;
+                session.state = STATE_CONN_LOST;
+            }
+            if(f_header)
+            {
+                t_free(f_header);
+                f_header = NULL;
+            }
+            if(buf_file_info)
+            {
+                t_free(buf_file_info);
+                buf_file_info = NULL;
+            }
             break;
         case STATE_FILE_INFO_SENT:
             /* wait for server frame */
-            //if ((recv_len = recv_frame(session.fd, buf)) <= 0)
-            //    goto re_login;
             if(buf)
                 recv_header = (frame_header *)buf;
             else
@@ -184,27 +229,30 @@ re_conn:
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
                 t_log("receive error");
-                goto re_login;
+                break;
             }
             /* handle the sub type */
             switch(recv_header->sub_type)
             {
             case FRAME_CONTROL_DOWNLOAD:
-                if(NULL == (f_desc = init_file_desc()))
-                {
-                    t_log("malloc login_buf frame error!");
-                    goto re_login;
-                }
-
-                
                 file_name_len = *(buf + sizeof(frame_header) + 1);
                 memcpy(buf_file_name + strlen(strcpy(buf_file_name,\
                         file_path)), buf + sizeof(frame_header) + 2,\
                         file_name_len);
 
-                f_desc->file_id = *((unsigned short *)(\
+                file_id = *((unsigned short *)(\
                         buf + sizeof(frame_header) + 2 + file_name_len));
-                f_desc->file_name = buf_file_name;
+
+                
+                if(NULL == (f_desc = init_file_desc(file_id, buf_file_name)))
+                {
+                    t_log("malloc login_buf frame error!");
+                    session.state = STATE_LOGIN;
+                    break;
+
+                }
+
+                
                 /* init send msg queue */
                 f_desc->qid = create_msg_q(MSG_Q_KEY_ID_DATA);
                 /* init file descritpor */
@@ -218,12 +266,6 @@ re_conn:
                 session.state = STATE_TRANSFER;
                 break;
             case FRAME_CONTROL_CONTINUE:
-                if(NULL == (f_desc = init_file_desc()))
-                {
-                    t_log("malloc login_buf frame error!");
-                    goto re_login;
-                }
-
                 /* save the file info */
                 buf_pos = buf;
                 buf_pos += sizeof(frame_header);
@@ -233,8 +275,16 @@ re_conn:
                         file_path)), buf_pos, file_name_len);
                 
                 buf_pos += file_name_len;
-                f_desc->file_id = *((unsigned short *)buf_pos);
+                file_id = *((unsigned short *)buf_pos);
                 f_desc->file_name = buf_file_name;
+
+                
+                if(NULL == (f_desc = init_file_desc(file_id, buf_file_name)))
+                {
+                    t_log("malloc login_buf frame error!");
+                    session.state = STATE_LOGIN;
+                    break;
+                }
 
                 /* file name len:1, file_name:n, file_id:2 */
                 buf_pos += 2;
@@ -256,12 +306,6 @@ re_conn:
             default:
                 break;
             }
-
-re_login:
-            if(f_header)
-                t_free(f_header);
-            if(buf_file_info)
-                t_free(buf_file_info);
 
             break;
         case STATE_TRANSFER:
@@ -286,7 +330,8 @@ re_login:
                 buf_pos += sizeof(frame_header);
                 /* file name len:1, file_name:n, file_id:2 */
                 buf_pos += 1 + buf_pos[0] + 2;
-
+                
+                /* add the re-transmit packages to the list */
                 handle_re_transimit_frame(session.f_desc, buf_pos);
                
                 break;
@@ -298,19 +343,29 @@ re_login:
         case STATE_TRANSFER_FIN:
             destroy_msg_q(session.f_desc->qid);
             session.f_desc->qid = -1;
-            printf("transfer finished\n");
+            t_log("transfer finished\n");
             session.state = STATE_FILE_INFO_SENT;
             break;
         case STATE_CONN_LOST:
+            printf("connection lost\n");
             close(session.fd);
             pthread_cancel(t_recv);
             pthread_cancel(t_send);
+            for(t_count = 0; t_count < THREAD_COUNT; t_count++)
+                pthread_cancel(t_handle[t_count]);
+
+            destroy_msg_q(session.f_desc->qid);
+            session.f_desc->qid = -1;
+
             destroy_msg_q(session.package_qid);
+            session.package_qid = -1;
+            
+            /* go back to the begining state */
             session.state = STATE_WAIT_CONN;
         default:
             break;
         }
-
+        /* free every buf after parse */
         if(buf)
         {
             t_free(buf);

@@ -21,7 +21,7 @@ static int get_file_size(FILE *fp)
     return size;
 }
 
-file_desc *init_file_desc()
+file_desc *init_file_desc(unsigned short file_id, unsigned char *file_name)
 {
     file_desc *f_desc = NULL;
     t_lock *block_list_lock = NULL;
@@ -42,13 +42,18 @@ file_desc *init_file_desc()
     init_lock(block_list_lock);
     f_desc->block_list_lock = block_list_lock;
 
+    f_desc->file_id = file_id;
+    f_desc->file_name = file_name;
+    f_desc->frame_remain = (unsigned short *)t_malloc(\
+        sizeof(unsigned short) * f_desc->block_count);
+    memset(f_desc->frame_remain, 0, sizeof(unsigned short) * f_desc->block_count);
     return f_desc;
     
 }
 
 static int init_send_list(file_desc *f_desc)
 {
-    int block_count = 0;
+    int block_count = 0, mod = 0, remain = 0, i = 0;
     file_block_desc *block_desc = NULL;
     frame_index *f_index = NULL;
 
@@ -81,10 +86,22 @@ static int init_send_list(file_desc *f_desc)
         /* append blocks to the list tail */
         f_desc->block_tail->next = block_desc;
         f_desc->block_tail = block_desc;
-
         block_count++;
     }
-    
+
+    f_desc->block_count = block_count;
+    remain = f_desc->file_size - f_desc->block_count * FILE_BLOCK_SIZE;
+    mod = remain % FILE_FRAME_SIZE;
+    f_desc->last_frame_count = mod ? remain / FILE_FRAME_SIZE + 1 : remain / FILE_FRAME_SIZE;
+
+    for(i = 0; i < f_desc->block_count - 1; i++)
+    {
+        f_desc->frame_remain[i] = MAX_FRAME_COUNT;
+    }
+    /* last frame count = 512 or remain */
+    f_desc->frame_remain[i] = f_desc->last_frame_count ? f_desc->last_frame_count :\
+                                MAX_FRAME_COUNT;
+
     return RET_SUCCESS;
 
 }
@@ -248,6 +265,7 @@ static int read_file_to_msg_q(frame_index *f_index, file_desc *f_desc, FILE *fp)
     {  
         perror("msg closed! quit the system!");
         printf("%d %d\n", f_desc->qid, f_msg.msg_type);
+        sleep(1);
     } 
 
     return RET_SUCCESS;
@@ -349,8 +367,7 @@ void send_thread(void *args)
     int                 qid;
     q_msg               f_msg;
     int                 err;
-    int                 waiting_count = 10;
-    int                 frame_len = 0, len = 0;
+    int                 frame_len = 0, len = 0, blk_count = 0;
 
     char                buf_send[2061];
 #if DEBUG
@@ -362,7 +379,7 @@ void send_thread(void *args)
     
     session = (transfer_session *)args;
     f_desc = session->f_desc;
-
+    blk_count = f_desc->block_count;
 
     if((qid = f_desc->qid) < 0)
     {
@@ -377,39 +394,35 @@ void send_thread(void *args)
             if ((err = recv_msg_q(qid, &f_msg, sizeof(q_msg),\
                     MSG_TYPE_FILE_FRAME, IPC_NOWAIT)) < 0)  
             {  
-                    perror("recv msg error!");
-                    if(waiting_count == 0)
-                    {
-                    #if DEBUG
-                        fclose(fp);
-                    #endif
-                        t_free(f_header);
-                        session->state = STATE_TRANSFER_FIN;
-                        return;
-                    }
-                    else
-                        waiting_count--;
                     sleep(1);
                     continue;
             }
-            waiting_count = 10;
             file_frame = *((file_frame_data **)(f_msg.msg_buf));
             /* encapusulate frame */
             frame_len = frame_build(f_header, file_frame, sizeof(file_frame_data), buf_send);
             /* send file info frame */
-            len = send_file_data(session, buf_send, frame_len);
+            send_file_data(session, buf_send, frame_len);
+
+            f_desc->frame_remain[file_frame->block_index - 1]--;
+            if(f_desc->frame_remain[file_frame->block_index - 1] == 0)
+            {
+                session->bs->file_id = HTONS(f_desc->file_id);
+                session->bs->block_index = HTONS(file_frame->block_index);
+                frame_crc_gen(&(session->bs->f_header), (unsigned char*)(&session->bs->file_id),4);
+                if ((len = send(session->fd, (char *)(session->bs), sizeof(block_sent_frame), 0))\
+                            != sizeof(block_sent_frame))           
+                {
+                    printf("send socket finished failed.\n");
+                    session->state = STATE_CONN_LOST;
+                    return;
+                }
+
+                /* if all count have been sent, tansfer finished */
+                blk_count--;
+                if(blk_count == 0)
+                    session->state = STATE_TRANSFER_FIN;
+            }
             
-            
-#if DEBUG
-            memset(test, 0, 10);
-            memcpy(test, file_frame->data, 4);
-            memcpy(test + 5, file_frame->data + 2044, 4);
-            test[4] = ' ';
-            printf("%s\n", test);
-            fseek(fp, (file_frame->block_index - 1) * FILE_BLOCK_SIZE +\
-                    (file_frame->frame_index - 1) * FILE_FRAME_SIZE, SEEK_SET);
-            fwrite(file_frame->data, 2048, 1, fp);
-#endif
             /* free the data after send */
             t_free(file_frame);
 
@@ -450,7 +463,10 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
         parse_count++;
 
         if(frame_index_no == 0xFFFF)
+        {
+            f_desc->frame_remain[block_index_no - 1] = MAX_FRAME_COUNT;
             goto add_to_list;
+        }
         
         while(parse_count < re_tran_count)
         {
@@ -466,6 +482,7 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
                 
                 data += 4;
                 parse_count++;
+                f_desc->frame_remain[block_index_no - 1]++;
             }
             else
                 break;

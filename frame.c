@@ -38,15 +38,36 @@ int frame_heartbeat_init(unsigned char **heartbeat_buf)
     frame_header_init(FRAME_TYPE_HEARTBEAT, FRAME_TYPE_HEARTBEAT, &f_header);
     f_header->length  = HTONS(5);
 
-    heartbeat_buf = (unsigned char *)t_malloc(sizeof(frame_header) + 1);
+    *heartbeat_buf = (unsigned char *)t_malloc(sizeof(frame_header) + 1);
 
-    memcpy(heartbeat_buf, f_header, sizeof(frame_header));
-    memset(heartbeat_buf + sizeof(frame_header), FRAME_TAIL, 1);
+    memcpy(*heartbeat_buf, f_header, sizeof(frame_header));
+    memset(*heartbeat_buf + sizeof(frame_header), FRAME_TAIL, 1);
 
     t_free(f_header);
 
     return 0;
 
+}
+
+int frame_block_sent_init(block_sent_frame **block_sent_buf)
+{
+    frame_header *f_header = NULL;
+
+    *block_sent_buf = (block_sent_frame *)t_malloc(sizeof(block_sent_frame));
+    
+    f_header = &((*block_sent_buf)->f_header);
+    f_header->type = FRAME_TYPE_CONTROL;
+    f_header->sub_type = FRAME_CONTROL_SENT;
+    f_header->length  = HTONS(9);
+
+    (*block_sent_buf)->f_tail = FRAME_TAIL;
+
+    return 0;
+
+}
+int frame_crc_gen(frame_header *f_header, unsigned char *begin, unsigned int len)
+{
+    f_header->crc = HTONS(get_crc_code(begin, len));
 }
 
 int frame_build(frame_header *header, unsigned char *data,\

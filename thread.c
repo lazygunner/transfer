@@ -68,7 +68,7 @@ int create_msg_q(int key_id)
 
     if(-1 == (qid = msgget(key, IPC_CREAT|IPC_EXCL|0666)))      
     {  
-        perror("message queue already exitsted!\n");  
+        perror("message queue already exitsted!");  
         return NULL;  
     }  
     return qid;

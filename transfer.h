@@ -20,6 +20,7 @@
 
     #include <sys/ipc.h>
     #include <sys/msg.h>
+    #include <signal.h>
 #endif
 
 #define BUF_SIZE 1024
@@ -86,6 +87,9 @@ typedef struct file_desc
     file_block_desc *block_tail;
     t_lock          *block_list_lock;
     int             qid;
+    unsigned short  block_count;
+    unsigned short  last_frame_count;
+    unsigned short  *frame_remain;
 }file_desc;
 
 typedef struct q_msg_tag
@@ -94,6 +98,21 @@ typedef struct q_msg_tag
     char            msg_buf[4];
 }q_msg;
 
+/* frame header */
+typedef struct frame_header_tag{
+    unsigned short length;
+    unsigned char type;
+    unsigned char sub_type;
+    unsigned short crc;
+}frame_header;
+
+/* sent block frame */
+typedef struct block_sent_frame_tag{
+    frame_header    f_header;
+    unsigned short  file_id;
+    unsigned short  block_index;
+    unsigned char   f_tail;
+}__attribute__ ((__packed__)) block_sent_frame;
 
 typedef struct transfer_session_tag transfer_session;
 struct transfer_session_tag
@@ -115,7 +134,8 @@ struct transfer_session_tag
 
     unsigned char *hb;
 
-    
+    block_sent_frame *bs;
+
     void *remote_addr;
     size_t remote_addr_len;
     struct sockaddr_in remote_con_addr;
@@ -147,13 +167,6 @@ struct transfer_session_tag
 
 };
 
-/* frame header */
-typedef struct frame_header_tag{
-    unsigned short length;
-    unsigned char type;
-    unsigned char sub_type;
-    unsigned short crc;
-}frame_header;
 
 /* transfer frame */
 typedef struct transfer_frame_tag{
@@ -168,7 +181,6 @@ typedef struct login_frame_tag{
     unsigned char train_no_len;
     unsigned char *train_no;
 }login_frame;
-
 /* Transfer frame type & sub type */
 #define FRAME_TYPE_HEARTBEAT    0X00
 #define FRAME_TYPE_CONTROL      0x01
@@ -180,6 +192,7 @@ typedef struct login_frame_tag{
 #define FRAME_CONTROL_CONTINUE          0X03
 #define FRAME_CONTROL_FILE_INFO         0X04
 #define FRAME_CONTROL_DOWNLOAD          0X05
+#define FRAME_CONTROL_SENT              0X06
 
 #define FRAME_DATA_MONITOR              0X01
 
