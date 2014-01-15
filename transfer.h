@@ -80,7 +80,6 @@ typedef struct file_frame_data_tag
 typedef struct file_desc
 {
     unsigned char   *file_name;
-    FILE            *file_fd;
     int             file_size;      /* max file size < 2GB */
     unsigned short  file_id;
     file_block_desc *block_head;
@@ -113,6 +112,13 @@ typedef struct block_sent_frame_tag{
     unsigned short  block_index;
     unsigned char   f_tail;
 }__attribute__ ((__packed__)) block_sent_frame;
+
+/* receive finish frame */
+typedef struct finish_frame_tag{
+    frame_header    f_header;
+    unsigned short  file_id;
+    unsigned char   f_tail;
+}__attribute__ ((__packed__)) finish_frame;
 
 typedef struct transfer_session_tag transfer_session;
 struct transfer_session_tag
@@ -192,7 +198,9 @@ typedef struct login_frame_tag{
 #define FRAME_CONTROL_CONTINUE          0X03
 #define FRAME_CONTROL_FILE_INFO         0X04
 #define FRAME_CONTROL_DOWNLOAD          0X05
-#define FRAME_CONTROL_SENT              0X06
+#define FRAME_CONTROL_ERROR             0X06
+#define FRAME_CONTROL_SENT              0X07
+#define FRAME_CONTROL_FINISHED          0X08
 
 #define FRAME_DATA_MONITOR              0X01
 

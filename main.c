@@ -40,6 +40,7 @@ void main_thread(void *args)
     frame_header *f_header = NULL, *recv_header = NULL;
     login_frame *f_logini = NULL;
     file_desc *f_desc = NULL;
+    finish_frame *finish = NULL;
 
     t_thread t_handle[THREAD_COUNT];
     t_thread t_send, t_recv, t_heartbeat;
@@ -67,6 +68,12 @@ void main_thread(void *args)
     init_socket(&session, ip_addr, port, data_port);
     frame_heartbeat_init(&session.hb);
     frame_block_sent_init(&session.bs);
+    if(NULL == (f_desc = init_file_desc()))
+    {
+        t_log("malloc f_desc frame error!");
+        return;
+    }
+    session.f_desc = f_desc;
 
 
     for(;;)
@@ -202,9 +209,10 @@ re_conn:
             }
             session.state = STATE_FILE_INFO_SENT;
 re_login:
-            printf("relogin\n");
             if(re_connect)
             {
+            
+                printf("re conn\n");
                 re_connect = 0;
                 session.state = STATE_CONN_LOST;
             }
@@ -218,8 +226,10 @@ re_login:
                 t_free(buf_file_info);
                 buf_file_info = NULL;
             }
+            printf("login\n");
             break;
         case STATE_FILE_INFO_SENT:
+            /* must have a timeout! */
             /* wait for server frame */
             if(buf)
                 recv_header = (frame_header *)buf;
@@ -236,28 +246,20 @@ re_login:
             {
             case FRAME_CONTROL_DOWNLOAD:
                 file_name_len = *(buf + sizeof(frame_header) + 1);
+                memset(buf_file_name, 0, FILE_NAME_MAX);
                 memcpy(buf_file_name + strlen(strcpy(buf_file_name,\
                         file_path)), buf + sizeof(frame_header) + 2,\
                         file_name_len);
 
                 file_id = *((unsigned short *)(\
                         buf + sizeof(frame_header) + 2 + file_name_len));
-
                 
-                if(NULL == (f_desc = init_file_desc(file_id, buf_file_name)))
-                {
-                    t_log("malloc login_buf frame error!");
-                    session.state = STATE_LOGIN;
-                    break;
-
-                }
-
+                printf("download %s \n", buf_file_name);
+                /* init file descriptor */
+                set_file_desc(f_desc, file_id, buf_file_name);
                 
-                /* init send msg queue */
-                f_desc->qid = create_msg_q(MSG_Q_KEY_ID_DATA);
-                /* init file descritpor */
-                init_send_file(f_desc);
-                session.f_desc = f_desc;
+                /* init send file data */
+                init_send_list(f_desc);
                 /* init send thread */
                 create_thread(&t_send, send_thread, &session);
                 /* init read threads */
@@ -266,35 +268,27 @@ re_login:
                 session.state = STATE_TRANSFER;
                 break;
             case FRAME_CONTROL_CONTINUE:
+                printf("re tran\n");
                 /* save the file info */
                 buf_pos = buf;
                 buf_pos += sizeof(frame_header);
                 file_name_len = *buf_pos;
                 buf_pos += 1;
+                memset(buf_file_name, 0, FILE_NAME_MAX);
                 memcpy(buf_file_name + strlen(strcpy(buf_file_name,\
                         file_path)), buf_pos, file_name_len);
                 
                 buf_pos += file_name_len;
                 file_id = *((unsigned short *)buf_pos);
-                f_desc->file_name = buf_file_name;
 
-                
-                if(NULL == (f_desc = init_file_desc(file_id, buf_file_name)))
-                {
-                    t_log("malloc login_buf frame error!");
-                    session.state = STATE_LOGIN;
-                    break;
-                }
+                set_file_desc(f_desc, file_id, buf_file_name);
 
                 /* file name len:1, file_name:n, file_id:2 */
                 buf_pos += 2;
 
                 /* skip the data before real re_tran data */
                 handle_re_transimit_frame(f_desc, buf_pos);
-                /* init send msg queue */
-                f_desc->qid = create_msg_q(MSG_Q_KEY_ID_DATA);
 
-                session.f_desc = f_desc;
                 /* init send thread */
                 create_thread(&t_send, send_thread, &session);
                 /* init read threads */
@@ -324,6 +318,7 @@ re_login:
             switch(recv_header->sub_type)
             {
             case FRAME_CONTROL_CONTINUE:
+                printf("transfer re tran\n");
                 /* add to transfer list */
                 /* skip the data before real re_tran data */
                 buf_pos = buf;
@@ -335,33 +330,50 @@ re_login:
                 handle_re_transimit_frame(session.f_desc, buf_pos);
                
                 break;
+             case FRAME_CONTROL_FINISHED:
+                printf("send finished\n");
+                finish = (finish_frame *)buf;
+                if(session.f_desc->file_id == HTONS(finish->file_id))
+                {
+                    session.state = STATE_TRANSFER_FIN;
+                    sleep(1);
+                }
+                else
+                    printf("finish frame file id error!\n");
+                break;
+                
             default:
                 break;
             }
 
             break;
         case STATE_TRANSFER_FIN:
-            destroy_msg_q(session.f_desc->qid);
-            session.f_desc->qid = -1;
+            //for(t_count = 0; t_count < THREAD_COUNT; t_count++)
+            //    pthread_cancel(t_handle[t_count]);
             t_log("transfer finished\n");
             session.state = STATE_FILE_INFO_SENT;
+            sleep(1);
+
+            clear_file_desc(session.f_desc);
             break;
         case STATE_CONN_LOST:
-            printf("connection lost\n");
-            close(session.fd);
-            pthread_cancel(t_recv);
-            pthread_cancel(t_send);
-            for(t_count = 0; t_count < THREAD_COUNT; t_count++)
-                pthread_cancel(t_handle[t_count]);
+            printf("state connection lost\n");
+            //pthread_cancel(t_recv);
+            //pthread_cancel(t_send);
+            //for(t_count = 0; t_count < THREAD_COUNT; t_count++)
+            //    pthread_cancel(t_handle[t_count]);
 
-            destroy_msg_q(session.f_desc->qid);
-            session.f_desc->qid = -1;
-
-            destroy_msg_q(session.package_qid);
-            session.package_qid = -1;
             
             /* go back to the begining state */
             session.state = STATE_WAIT_CONN;
+            sleep(1);
+            
+            close(session.fd);
+            clear_file_desc(session.f_desc);
+
+            destroy_msg_q(session.package_qid);
+            session.package_qid = -1;
+
         default:
             break;
         }

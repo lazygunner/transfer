@@ -91,6 +91,9 @@ void receive_handler(void *args)
     FD_ZERO(&rset);
     for(;;)
     {
+        if(session->state == STATE_TRANSFER_FIN || session->state == STATE_CONN_LOST)
+            return;
+
         FD_SET(sock_fd, &rset);
         select(sock_fd + 1, &rset, NULL, NULL, NULL);
         if(FD_ISSET(sock_fd, &rset))
@@ -155,7 +158,7 @@ void send_heartbeat_thread(void *args)
 
     for(;;)
     {
-        if(session->state < STATE_LOGIN)
+        if(session->state < STATE_LOGIN || session->state >= STATE_TRANSFER_FIN)
             return;
         
         /* do not return in case of state be changed by others */
@@ -163,10 +166,11 @@ void send_heartbeat_thread(void *args)
                 HEARTBEAT_LEN)
         {
             session->state = STATE_CONN_LOST;
-            printf("connection lost, ret:%d\n", ret);
+            printf("connection lost!\n");
+            return;
         }
-        else
-            printf("send heart beat...\n");
+        //else
+        //    printf("send heart beat...\n");
       
         sleep(1);
     }
