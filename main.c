@@ -64,6 +64,7 @@ void main_thread(void *args)
     int fd;
     int code = 0;
     unsigned char file_name_len = 0, t_count = 0;
+    int wait_seconds = MAX_WAIT_SECONDS;
     
     init_socket(&session, ip_addr, port, data_port);
     frame_heartbeat_init(&session.hb);
@@ -167,9 +168,25 @@ re_conn:
         case STATE_LOGIN_SENT:
             /* waiting for login confirm frame */
             if(buf)
+            {
                 recv_header = (frame_header *)buf;
+                wait_seconds = MAX_WAIT_SECONDS;
+            }
             else
-                break;
+            {
+                if(wait_seconds)
+                {
+                    wait_seconds--;
+                    sleep(1);
+                    break;
+                }
+                else
+                {
+                    wait_seconds = MAX_WAIT_SECONDS;
+                    session.state = STATE_CONN_LOST;
+                    break;
+                }
+             }
 
             if (recv_header->type != FRAME_TYPE_CONTROL ||\
                 recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
@@ -232,9 +249,25 @@ re_login:
             /* must have a timeout! */
             /* wait for server frame */
             if(buf)
+            {
                 recv_header = (frame_header *)buf;
+                wait_seconds = MAX_WAIT_SECONDS;
+            }
             else
-                break;
+            {
+                if(wait_seconds)
+                {
+                    wait_seconds--;
+                    sleep(1);
+                    break;
+                }
+                else
+                {
+                    wait_seconds = MAX_WAIT_SECONDS;
+                    session.state = STATE_CONN_LOST;
+                    break;
+                }
+             }
 
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
@@ -260,12 +293,13 @@ re_login:
                 
                 /* init send file data */
                 init_send_list(f_desc);
+                
+                session.state = STATE_TRANSFER;
                 /* init send thread */
                 create_thread(&t_send, send_thread, &session);
                 /* init read threads */
                 for(t_count = 0; t_count < THREAD_COUNT; t_count++)
                     create_thread(&t_handle[t_count], read_thread, &session);
-                session.state = STATE_TRANSFER;
                 break;
             case FRAME_CONTROL_CONTINUE:
                 printf("re tran\n");
@@ -289,12 +323,12 @@ re_login:
                 /* skip the data before real re_tran data */
                 handle_re_transimit_frame(f_desc, buf_pos);
 
+                session.state = STATE_TRANSFER;
                 /* init send thread */
                 create_thread(&t_send, send_thread, &session);
                 /* init read threads */
                 for(t_count = 0; t_count < THREAD_COUNT; t_count++)
                     create_thread(&t_handle[t_count], read_thread, &session);
-                session.state = STATE_TRANSFER;
 
                 break;
             default:
@@ -305,9 +339,25 @@ re_login:
         case STATE_TRANSFER:
             //printf("transfering\n");
             if(buf)
+            {
                 recv_header = (frame_header *)buf;
+                wait_seconds = MAX_WAIT_SECONDS;
+            }
             else
-                break;
+            {
+                if(wait_seconds)
+                {
+                    wait_seconds--;
+                    sleep(1);
+                    break;
+                }
+                else
+                {
+                    wait_seconds = MAX_WAIT_SECONDS;
+                    session.state = STATE_CONN_LOST;
+                    break;
+                }
+             }
 
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
@@ -335,8 +385,11 @@ re_login:
                 finish = (finish_frame *)buf;
                 if(session.f_desc->file_id == HTONS(finish->file_id))
                 {
-                    session.state = STATE_TRANSFER_FIN;
-                    sleep(1);
+                    //session.state = STATE_TRANSFER_FIN;
+                    t_log("transfer finished\n");
+                    session.state = STATE_FILE_INFO_SENT;
+                    clear_file_desc(session.f_desc);
+                   // sleep(1);
                 }
                 else
                     printf("finish frame file id error!\n");
@@ -352,9 +405,8 @@ re_login:
             //    pthread_cancel(t_handle[t_count]);
             t_log("transfer finished\n");
             session.state = STATE_FILE_INFO_SENT;
-            sleep(1);
+//            sleep(1);
 
-            clear_file_desc(session.f_desc);
             break;
         case STATE_CONN_LOST:
             printf("state connection lost\n");
@@ -366,7 +418,7 @@ re_login:
             
             /* go back to the begining state */
             session.state = STATE_WAIT_CONN;
-            sleep(1);
+            sleep(3);
             
             close(session.fd);
             clear_file_desc(session.f_desc);

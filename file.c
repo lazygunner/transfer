@@ -71,7 +71,7 @@ void set_file_desc(file_desc *f_desc, unsigned short file_id, unsigned char *fil
     block_count = f_desc->file_size / FILE_BLOCK_SIZE;
     f_desc->block_count = mod ? block_count + 1 : block_count;
     mod = 0;
-    remain = f_desc->file_size - f_desc->block_count * FILE_BLOCK_SIZE;
+    remain = f_desc->file_size - block_count * FILE_BLOCK_SIZE;
     mod = remain % FILE_FRAME_SIZE;
     f_desc->last_frame_count = mod ? remain / FILE_FRAME_SIZE + 1 : remain / FILE_FRAME_SIZE;
     
@@ -145,6 +145,7 @@ int init_send_list(file_desc *f_desc)
 
     while(block_count * FILE_BLOCK_SIZE < f_desc->file_size)
     {
+        /* will be free in read thread */
         if(NULL == (block_desc =\
             (file_block_desc *)t_malloc(sizeof(file_block_desc))))
         {
@@ -402,6 +403,11 @@ static int read_file_to_msg_q(frame_index *f_index, file_desc *f_desc, FILE *fp)
     while(send_to_msg_q(f_desc->qid,&f_msg, sizeof(q_msg), 0) < 0)  
     {  
         perror("msg closed! quit the system!");
+        if(f_desc->qid < 0)
+        {
+            t_free(file_frame);
+            return;
+        }
         printf("%d %d\n", f_desc->qid, f_msg.msg_type);
         sleep(1);
     } 
@@ -414,7 +420,7 @@ void read_thread(void *args)
     transfer_session    *session;
     file_desc           *f_desc;
     file_block_desc     *b_desc;
-    frame_index         *f_index;
+    frame_index         *f_index, *last_index;
     FILE                *fp;
     int                 err;
 
@@ -431,14 +437,14 @@ void read_thread(void *args)
    
     for(;;)
     {
-        b_desc = get_first_block(f_desc);
-        if(session->state == STATE_TRANSFER_FIN || session->state == STATE_CONN_LOST)
+        if(session->state != STATE_TRANSFER)
         {
             /* if state = finish, close file and exit the thread */
             fclose(fp);
             return;
         }
 
+        b_desc = get_first_block(f_desc);
         if(b_desc == ERR_BLOCK_LIST_NULL)
             return;
         else if(b_desc == ERR_BLOCK_LIST_EMPTY)
@@ -454,20 +460,24 @@ void read_thread(void *args)
                 for(i = 1; i <= MAX_FRAME_COUNT; i++)
                 {
                     f_index->frame_index = i;
-                    read_file_to_msg_q(f_index, f_desc, fp);
+                    if(read_file_to_msg_q(f_index, f_desc, fp) < 0)
+                        goto exit;
                 }
+                t_free(f_index);
             }
             else if(b_desc->retry_flag == RETRAN_FRAME)
             {
-                printf("read_thread re tran");
+                printf("read_thread re tran\n");
                 f_index = b_desc->index;
                 if(f_index->frame_index == 0XFFFF)
                 {
                     for(i = 1; i <= MAX_FRAME_COUNT; i++)
                     {
                         f_index->frame_index = i;
-                        read_file_to_msg_q(f_index, f_desc, fp);
+                        if(read_file_to_msg_q(f_index, f_desc, fp) < 0)
+                            goto exit;
                     }
+                    t_free(f_index);
 
                 }
                 else
@@ -475,7 +485,9 @@ void read_thread(void *args)
                     do
                     {
                         read_file_to_msg_q(f_index, f_desc, fp);
+                        last_index = f_index;
                         f_index = f_index->next;
+                        t_free(last_index);
                     }while(f_index);
 
                 }
@@ -485,12 +497,15 @@ void read_thread(void *args)
 
         }
 
-        
+        t_free(b_desc);
 //        printf("block:%d\n", b_desc->index->block_index);
             
     }
 
-
+exit:
+    t_free(b_desc->index);
+    t_free(b_desc);
+    return;
 
 }
 
@@ -527,8 +542,17 @@ void send_thread(void *args)
     frame_header_init(FRAME_TYPE_DATA, FRAME_DATA_MONITOR, &f_header);
     for(;;)
     {
-            if (session->state == STATE_TRANSFER_FIN || session->state == STATE_CONN_LOST)
+            if (session->state != STATE_TRANSFER)
+            {
+                /* free the packages in the queue */
+                while(recv_msg_q(qid, &f_msg, sizeof(q_msg),\
+                        MSG_TYPE_FILE_FRAME, IPC_NOWAIT) >= 0)
+                {
+                    file_frame = *((file_frame_data **)(f_msg.msg_buf));
+                    free(file_frame);
+                }
                 return;
+            }
             /* get frame from msg q */
             if ((err = recv_msg_q(qid, &f_msg, sizeof(q_msg),\
                     MSG_TYPE_FILE_FRAME, IPC_NOWAIT)) < 0)  
@@ -542,6 +566,8 @@ void send_thread(void *args)
             /* send file info frame */
             send_file_data(session, buf_send, frame_len);
             
+            if(!f_desc->frame_remain)
+                return;
             f_desc->frame_remain[file_frame->block_index - 1]--;
             if(f_desc->frame_remain[file_frame->block_index - 1] == 0)
             {

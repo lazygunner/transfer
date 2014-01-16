@@ -7,12 +7,13 @@ void *t_malloc(int x)
 {
     void *ptr;
     ptr = malloc(x);
-    //printf("malloc size:%d\n", x);
+    //printf("[alloc] ptr:%x size:%d\n", ptr, x);
     return ptr;
 }
 
 void t_free(void *x)
 {
+    //printf("[free]  ptr:%x\n", x);
     return free(x);
 
 }
