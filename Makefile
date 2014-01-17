@@ -1,8 +1,9 @@
 CFLAGS = -g 
 LDFLAGS = -pthread
 
-transfer: transfer.o main.o log.o crc.o frame.o file.o thread.o
+transfer: transfer.o main.o log.o crc.o frame.o file.o thread.o memory.o
 
+memory.o: memory.c memory.o
 main.o: main.c
 transfer.o: transfer.c transfer.o
 log.o: log.c log.o

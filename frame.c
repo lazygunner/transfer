@@ -49,18 +49,16 @@ int frame_heartbeat_init(unsigned char **heartbeat_buf)
 
 }
 
-int frame_block_sent_init(block_sent_frame **block_sent_buf)
+int frame_block_sent_init(block_sent_frame *block_sent_buf)
 {
     frame_header *f_header = NULL;
 
-    *block_sent_buf = (block_sent_frame *)t_malloc(sizeof(block_sent_frame));
-    
-    f_header = &((*block_sent_buf)->f_header);
+    f_header = &(block_sent_buf->f_header);
     f_header->type = FRAME_TYPE_CONTROL;
     f_header->sub_type = FRAME_CONTROL_SENT;
     f_header->length  = HTONS(9);
 
-    (*block_sent_buf)->f_tail = FRAME_TAIL;
+    block_sent_buf->f_tail = FRAME_TAIL;
 
     return 0;
 

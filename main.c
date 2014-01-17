@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
     if (rc != 0) {
            printf("block sigpipe error\n");
     } 
-
+    mem_pool_init();
     create_thread(&t_main, main_thread, NULL);
     for(;;)
     {
@@ -68,13 +68,23 @@ void main_thread(void *args)
     
     init_socket(&session, ip_addr, port, data_port);
     frame_heartbeat_init(&session.hb);
-    frame_block_sent_init(&session.bs);
     if(NULL == (f_desc = init_file_desc()))
     {
         t_log("malloc f_desc frame error!");
         return;
     }
     session.f_desc = f_desc;
+ 
+    /* create receive messsage queue */
+    session.package_qid = create_msg_q(MSG_Q_KEY_ID_RECV);
+    session.data_qid = create_msg_q(MSG_Q_KEY_ID_DATA);
+    
+
+    /* init send thread */
+    create_thread(&t_send, send_thread, &session);
+    /* init read threads */
+    for(t_count = 0; t_count < THREAD_COUNT; t_count++)
+        create_thread(&t_handle[t_count], read_thread, &session);
 
 
     for(;;)
@@ -103,11 +113,10 @@ void main_thread(void *args)
                 DELAY(CONNECT_DELAY_SECONDS);
                 break;
             }
-            /* create receive messsage queue */
-            session.package_qid = create_msg_q(MSG_Q_KEY_ID_RECV);
+            session.state = STATE_CONNECTED;
             /* create receive handler thread */
             create_thread(&t_recv, receive_handler, &session);
-            session.state = STATE_CONNECTED;
+
             break;
         case STATE_CONNECTED:
             if (session.fd < 0)
@@ -144,7 +153,7 @@ void main_thread(void *args)
                 re_connect = 1;
                 goto re_conn;
             }
-
+            printf("login sent\n");
             session.state = STATE_LOGIN_SENT;
 re_conn:    
             if(re_connect)
@@ -296,10 +305,10 @@ re_login:
                 
                 session.state = STATE_TRANSFER;
                 /* init send thread */
-                create_thread(&t_send, send_thread, &session);
+                //create_thread(&t_send, send_thread, &session);
                 /* init read threads */
-                for(t_count = 0; t_count < THREAD_COUNT; t_count++)
-                    create_thread(&t_handle[t_count], read_thread, &session);
+                //for(t_count = 0; t_count < THREAD_COUNT; t_count++)
+                //    create_thread(&t_handle[t_count], read_thread, &session);
                 break;
             case FRAME_CONTROL_CONTINUE:
                 printf("re tran\n");
@@ -324,11 +333,6 @@ re_login:
                 handle_re_transimit_frame(f_desc, buf_pos);
 
                 session.state = STATE_TRANSFER;
-                /* init send thread */
-                create_thread(&t_send, send_thread, &session);
-                /* init read threads */
-                for(t_count = 0; t_count < THREAD_COUNT; t_count++)
-                    create_thread(&t_handle[t_count], read_thread, &session);
 
                 break;
             default:
@@ -387,9 +391,14 @@ re_login:
                 {
                     //session.state = STATE_TRANSFER_FIN;
                     t_log("transfer finished\n");
+                    show_mem_stat();
                     session.state = STATE_FILE_INFO_SENT;
+                    sleep(2);
+                    //pthread_cancel(t_send);
+                    //for(t_count = 0; t_count < THREAD_COUNT; t_count++)
+                    //    pthread_cancel(t_handle[t_count]);
+
                     clear_file_desc(session.f_desc);
-                   // sleep(1);
                 }
                 else
                     printf("finish frame file id error!\n");
@@ -423,8 +432,8 @@ re_login:
             close(session.fd);
             clear_file_desc(session.f_desc);
 
-            destroy_msg_q(session.package_qid);
-            session.package_qid = -1;
+            //destroy_msg_q(session.package_qid);
+            //session.package_qid = -1;
 
         default:
             break;

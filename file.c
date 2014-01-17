@@ -54,7 +54,7 @@ void set_file_desc(file_desc *f_desc, unsigned short file_id, unsigned char *fil
     f_desc->file_id = file_id;
     f_desc->file_name = file_name;
     /* init send msg queue */
-    f_desc->qid = create_msg_q(MSG_Q_KEY_ID_DATA);
+    //f_desc->qid = create_msg_q(MSG_Q_KEY_ID_DATA);
     
     if(NULL == f_desc->file_name)
         return ERR_FILE_NAME_NULL;
@@ -101,26 +101,21 @@ void clear_file_desc(file_desc *f_desc)
             {
                 f_index = b_desc->index->next;
                 b_desc->index->next = b_desc->index->next->next;
-                free(f_index);
+                t_free(f_index);
             }
-            free(b_desc->index);
+            t_free(b_desc->index);
         }
-        free(b_desc);
+        t_free(b_desc);
     }
     f_desc->block_tail = f_desc->block_head;
 
     if(f_desc->frame_remain)
     {
-        free(f_desc->frame_remain);
+        t_free(f_desc->frame_remain);
         f_desc->frame_remain = NULL;
     }
     
-    /* clear send msg queue */
-    if(f_desc->qid >= 0)
-    {
-        destroy_msg_q(f_desc->qid);
-        f_desc->qid = -1;
-    }
+    
 }
 
 void free_file_desc(file_desc *f_desc)
@@ -129,8 +124,8 @@ void free_file_desc(file_desc *f_desc)
     {
         clear_file_desc(f_desc);
         if(f_desc->block_list_lock)
-            free(f_desc->block_list_lock);
-        free(f_desc);
+            t_free(f_desc->block_list_lock);
+        t_free(f_desc);
     }
     return;
 
@@ -372,7 +367,7 @@ static file_block_desc *get_first_block(file_desc *f_desc)
     return block;
 }
 
-static int read_file_to_msg_q(frame_index *f_index, file_desc *f_desc, FILE *fp)
+static int read_file_to_msg_q(frame_index *f_index, file_desc *f_desc, FILE *fp, int qid)
 {
 
     file_frame_data     *file_frame;
@@ -400,15 +395,10 @@ static int read_file_to_msg_q(frame_index *f_index, file_desc *f_desc, FILE *fp)
 
     f_msg.msg_type = MSG_TYPE_FILE_FRAME; /* must be > 0 */
     memcpy(f_msg.msg_buf, &file_frame, sizeof(file_frame));
-    while(send_to_msg_q(f_desc->qid,&f_msg, sizeof(q_msg), 0) < 0)  
+    while(send_to_msg_q(qid, &f_msg, sizeof(q_msg), 0) < 0)  
     {  
         perror("msg closed! quit the system!");
-        if(f_desc->qid < 0)
-        {
-            t_free(file_frame);
-            return;
-        }
-        printf("%d %d\n", f_desc->qid, f_msg.msg_type);
+        printf("%d %d\n", qid, f_msg.msg_type);
         sleep(1);
     } 
 
@@ -429,19 +419,28 @@ void read_thread(void *args)
     session = (transfer_session *)args;
     f_desc = session->f_desc;
 
-    if(NULL == (fp = fopen(f_desc->file_name, "r")))
-    {
-        t_log("open file error");
-        return;
-    }
    
     for(;;)
     {
         if(session->state != STATE_TRANSFER)
         {
             /* if state = finish, close file and exit the thread */
-            fclose(fp);
-            return;
+            if(fp)
+            {
+                fclose(fp);
+                fp = NULL;
+            }
+            sleep(1);
+            continue;
+        }
+        
+        if(NULL == fp)
+        {
+            if(NULL == (fp = fopen(f_desc->file_name, "r")))
+            {
+                t_log("open file error");
+                return;
+            }
         }
 
         b_desc = get_first_block(f_desc);
@@ -460,8 +459,7 @@ void read_thread(void *args)
                 for(i = 1; i <= MAX_FRAME_COUNT; i++)
                 {
                     f_index->frame_index = i;
-                    if(read_file_to_msg_q(f_index, f_desc, fp) < 0)
-                        goto exit;
+                    read_file_to_msg_q(f_index, f_desc, fp, session->data_qid);
                 }
                 t_free(f_index);
             }
@@ -474,8 +472,7 @@ void read_thread(void *args)
                     for(i = 1; i <= MAX_FRAME_COUNT; i++)
                     {
                         f_index->frame_index = i;
-                        if(read_file_to_msg_q(f_index, f_desc, fp) < 0)
-                            goto exit;
+                        read_file_to_msg_q(f_index, f_desc, fp, session->data_qid);
                     }
                     t_free(f_index);
 
@@ -484,7 +481,7 @@ void read_thread(void *args)
                 {
                     do
                     {
-                        read_file_to_msg_q(f_index, f_desc, fp);
+                        read_file_to_msg_q(f_index, f_desc, fp, session->data_qid);
                         last_index = f_index;
                         f_index = f_index->next;
                         t_free(last_index);
@@ -502,9 +499,6 @@ void read_thread(void *args)
             
     }
 
-exit:
-    t_free(b_desc->index);
-    t_free(b_desc);
     return;
 
 }
@@ -517,6 +511,7 @@ void send_thread(void *args)
     file_frame_data     *file_frame;
     frame_index         *f_index;
     frame_header        *f_header;
+    block_sent_frame    bs;
     int                 qid;
     q_msg               f_msg;
     int                 err;
@@ -532,8 +527,9 @@ void send_thread(void *args)
     session = (transfer_session *)args;
     f_desc = session->f_desc;
     blk_count = f_desc->block_count;
+    frame_block_sent_init(&bs);
 
-    if((qid = f_desc->qid) < 0)
+    if((qid = session->data_qid) < 0)
     {
         printf("msg q error");
         return;
@@ -549,9 +545,12 @@ void send_thread(void *args)
                         MSG_TYPE_FILE_FRAME, IPC_NOWAIT) >= 0)
                 {
                     file_frame = *((file_frame_data **)(f_msg.msg_buf));
-                    free(file_frame);
+                    t_free(file_frame);
                 }
-                return;
+                //t_free(f_header);
+                //return;
+                sleep(1);
+                continue;
             }
             /* get frame from msg q */
             if ((err = recv_msg_q(qid, &f_msg, sizeof(q_msg),\
@@ -567,18 +566,24 @@ void send_thread(void *args)
             send_file_data(session, buf_send, frame_len);
             
             if(!f_desc->frame_remain)
+            {
+                t_free(file_frame);
+                t_free(f_header);
                 return;
+            }
             f_desc->frame_remain[file_frame->block_index - 1]--;
             if(f_desc->frame_remain[file_frame->block_index - 1] == 0)
             {
-                session->bs->file_id = HTONS(f_desc->file_id);
-                session->bs->block_index = HTONS(file_frame->block_index);
-                frame_crc_gen(&(session->bs->f_header), (unsigned char*)(&session->bs->file_id),4);
-                if ((len = send(session->fd, (char *)(session->bs), sizeof(block_sent_frame), 0))\
+                bs.file_id = HTONS(f_desc->file_id);
+                bs.block_index = HTONS(file_frame->block_index);
+                frame_crc_gen(&(bs.f_header), (unsigned char*)(&bs.file_id),4);
+                if ((len = send(session->fd, (char *)(&bs), sizeof(block_sent_frame), 0))\
                             != sizeof(block_sent_frame))           
                 {
                     printf("send socket finished failed.\n");
                     session->state = STATE_CONN_LOST;
+                    t_free(file_frame);
+                    t_free(f_header);
                     return;
                 }
 
@@ -592,6 +597,7 @@ void send_thread(void *args)
             t_free(file_frame);
 
     }
+    t_free(f_header);
 
 }
 

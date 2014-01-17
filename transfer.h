@@ -26,6 +26,7 @@
 #define BUF_SIZE 1024
 #define FILE_NAME_MAX 256
 #define CONNECT_DELAY_SECONDS 10
+#define MAX_WAIT_SECONDS 10
 #define LEN_HEADER 2
 #define THREAD_COUNT 3
 
@@ -85,7 +86,6 @@ typedef struct file_desc
     file_block_desc *block_head;
     file_block_desc *block_tail;
     t_lock          *block_list_lock;
-    int             qid;
     unsigned short  block_count;
     unsigned short  last_frame_count;
     unsigned short  *frame_remain;
@@ -140,8 +140,6 @@ struct transfer_session_tag
 
     unsigned char *hb;
 
-    block_sent_frame *bs;
-
     void *remote_addr;
     size_t remote_addr_len;
     struct sockaddr_in remote_con_addr;
@@ -149,6 +147,7 @@ struct transfer_session_tag
     int ai_family;
     
     int package_qid;
+    int data_qid;
 
 
     void *protocol_data;

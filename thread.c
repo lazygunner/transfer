@@ -1,4 +1,5 @@
 #include "thread.h"
+#include "memory.h"
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/types.h>
@@ -6,7 +7,7 @@
 void *t_malloc(int x)     
 {
     void *ptr;
-    ptr = malloc(x);
+    ptr = XMALLOC(x, 1);
     //printf("[alloc] ptr:%x size:%d\n", ptr, x);
     return ptr;
 }
@@ -14,7 +15,7 @@ void *t_malloc(int x)
 void t_free(void *x)
 {
     //printf("[free]  ptr:%x\n", x);
-    return free(x);
+    return XFREE(x);
 
 }
 
