@@ -13,6 +13,7 @@ int init_socket(transfer_session *request, char *host_ip,\
     request->fd = 0;
     request->train_no = g_train_no;
     request->train_no_len = strlen(g_train_no);
+    request->f_desc = NULL;
 }
 
 int connect_server(transfer_session *request)
@@ -119,17 +120,18 @@ void receive_handler(void *args)
             data_len = recv_len + 1 - sizeof(frame_header);
                      
             recv_crc = get_crc_code(buf + sizeof(frame_header), data_len);
-               
+            /*   
             if(recv_crc != NTOHS(((frame_header *)buf)->crc))
             {
                 t_log("receive crc error");
                 continue;
             }
+            */
 
             handle_package = (unsigned char *)t_malloc(frame_len);
             //printf("malloc ptr:%p len:%d\n", handle_package, frame_len);
             memcpy(handle_package, buf, frame_len);
-            memcpy(package_msg.msg_buf, &handle_package,\
+            memcpy(&package_msg.msg_buf.data, &handle_package,\
                     sizeof(handle_package));
             package_msg.msg_type = MSG_TYPE_PACKAGE;
             

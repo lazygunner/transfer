@@ -26,7 +26,7 @@
 #define BUF_SIZE 1024
 #define FILE_NAME_MAX 256
 #define CONNECT_DELAY_SECONDS 10
-#define MAX_WAIT_SECONDS 10
+#define MAX_WAIT_SECONDS 120
 #define LEN_HEADER 2
 #define THREAD_COUNT 3
 
@@ -91,10 +91,16 @@ typedef struct file_desc
     unsigned short  *frame_remain;
 }file_desc;
 
+typedef struct data_msg_tag
+{
+    unsigned char   *data;
+    unsigned short  data_len;
+}data_msg;
+
 typedef struct q_msg_tag
 {
     unsigned int    msg_type;
-    char            msg_buf[4];
+    data_msg        msg_buf;
 }q_msg;
 
 /* frame header */

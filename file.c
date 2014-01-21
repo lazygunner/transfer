@@ -4,7 +4,7 @@
 #include <sys/stat.h>
 
 #define FILE_BLOCK_SIZE     (1024 * 1024)     /* 1MB */
-#define FILE_FRAME_SIZE     (1024 * 2)        /* 2KB */
+#define FILE_FRAME_SIZE     2048        /* 2KB */
 #define MAX_FRAME_COUNT     512
 
 #define FILE_INFO_LEN       9                   /* 4 + 4 + 1 */     
@@ -41,6 +41,12 @@ file_desc *init_file_desc()
     block_list_lock = t_malloc(sizeof(t_lock));
     init_lock(block_list_lock);
     f_desc->block_list_lock = block_list_lock;
+
+    f_desc->file_size = 0;
+    f_desc->file_id = 0;
+    f_desc->block_count = 0;
+    f_desc->last_frame_count = 0;
+    f_desc->frame_remain = NULL;
 
     return f_desc;
     
@@ -87,6 +93,8 @@ void clear_file_desc(file_desc *f_desc)
     file_block_desc *b_desc;
     frame_index     *f_index;
 
+    if(!f_desc)
+        return;
     f_desc->file_id = 0;
     f_desc->file_name = NULL;
 
@@ -326,11 +334,11 @@ int get_file_info(char *path, unsigned char **buf)
        
        if(stat(path_buf, &file_stat) != -1)
         {
-            mod_time = (unsigned int)file_stat.st_mtime;
-            file_size = (unsigned int)file_stat.st_size;
-            memcpy((*buf) + offset, &file_size, 4);
+            mod_time = HTONL((unsigned int)(file_stat.st_mtime));
+            file_size = HTONL((unsigned int)file_stat.st_size);
+            memcpy((*buf) + offset, (unsigned char *)(&file_size), 4);
             offset += 4;
-            memcpy((*buf) + offset, &file_stat, 4);
+            memcpy((*buf) + offset, (unsigned char *)(&mod_time), 4);
             offset += 4;
             memcpy((*buf) + offset, (char *)&name_len, 1);
             offset += 1;
@@ -387,14 +395,14 @@ static int read_file_to_msg_q(frame_index *f_index, file_desc *f_desc, FILE *fp,
     file_frame->frame_index = f_index->frame_index;
 
 
-    read_count = fread(file_frame->data, FILE_FRAME_SIZE, 1, fp);
+    read_count = fread(file_frame->data, 1, FILE_FRAME_SIZE, fp);
     if(read_count < FILE_FRAME_SIZE)
         memset(file_frame->data + read_count,\
                 0xFF, FILE_FRAME_SIZE - read_count);
-
-
+    
+    f_msg.msg_buf.data_len = read_count;
     f_msg.msg_type = MSG_TYPE_FILE_FRAME; /* must be > 0 */
-    memcpy(f_msg.msg_buf, &file_frame, sizeof(file_frame));
+    memcpy(&f_msg.msg_buf.data, (unsigned char *)(&file_frame), sizeof(file_frame));
     while(send_to_msg_q(qid, &f_msg, sizeof(q_msg), 0) < 0)  
     {  
         perror("msg closed! quit the system!");
@@ -439,7 +447,7 @@ void read_thread(void *args)
             if(NULL == (fp = fopen(f_desc->file_name, "r")))
             {
                 t_log("open file error");
-                return;
+                continue;
             }
         }
 
@@ -516,6 +524,7 @@ void send_thread(void *args)
     q_msg               f_msg;
     int                 err;
     int                 frame_len = 0, len = 0, blk_count = 0;
+    unsigned short      b_index = 0;
     char                buf_send[2061];
 #if DEBUG
     char test[10];
@@ -544,7 +553,7 @@ void send_thread(void *args)
                 while(recv_msg_q(qid, &f_msg, sizeof(q_msg),\
                         MSG_TYPE_FILE_FRAME, IPC_NOWAIT) >= 0)
                 {
-                    file_frame = *((file_frame_data **)(f_msg.msg_buf));
+                    file_frame = (file_frame_data *)(f_msg.msg_buf.data);
                     t_free(file_frame);
                 }
                 //t_free(f_header);
@@ -559,32 +568,39 @@ void send_thread(void *args)
                     sleep(1);
                     continue;
             }
-            file_frame = *((file_frame_data **)(f_msg.msg_buf));
+            file_frame = (file_frame_data *)(f_msg.msg_buf.data);
+            b_index = file_frame->block_index;
             /* encapusulate frame */
+            file_frame->file_id = HTONS(file_frame->file_id);
+            file_frame->block_index = HTONS(file_frame->block_index);
+            file_frame->frame_index = HTONS(file_frame->frame_index);
+
             frame_len = frame_build(f_header, file_frame, sizeof(file_frame_data), buf_send);
-            /* send file info frame */
-            send_file_data(session, buf_send, frame_len);
+            
+            if(f_msg.msg_buf.data_len < FILE_FRAME_SIZE)
+                ((frame_header *)buf_send)->length = HTONS(f_msg.msg_buf.data_len + 11);
+            
+            /* send file data frame */
+            send_file_data(session, buf_send, f_msg.msg_buf.data_len + 13);
             
             if(!f_desc->frame_remain)
             {
                 t_free(file_frame);
-                t_free(f_header);
-                return;
+                continue;
             }
-            f_desc->frame_remain[file_frame->block_index - 1]--;
-            if(f_desc->frame_remain[file_frame->block_index - 1] == 0)
+            f_desc->frame_remain[b_index - 1]--;
+            if(f_desc->frame_remain[b_index - 1] == 0)
             {
                 bs.file_id = HTONS(f_desc->file_id);
-                bs.block_index = HTONS(file_frame->block_index);
-                frame_crc_gen(&(bs.f_header), (unsigned char*)(&bs.file_id),4);
+                bs.block_index = file_frame->block_index;
+                frame_crc_gen(&(bs.f_header), (unsigned char*)(&bs.file_id), 4);
                 if ((len = send(session->fd, (char *)(&bs), sizeof(block_sent_frame), 0))\
                             != sizeof(block_sent_frame))           
                 {
                     printf("send socket finished failed.\n");
                     session->state = STATE_CONN_LOST;
                     t_free(file_frame);
-                    t_free(f_header);
-                    return;
+                    continue;
                 }
 
                 /* if all count have been sent, tansfer finished */

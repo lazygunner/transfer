@@ -2,7 +2,7 @@
 #include "error.h"
 #include "file.h"
 
-char *ip_addr = "192.168.2.158";
+char *ip_addr = "192.168.2.23";
 unsigned short port = 6260;
 unsigned short data_port = 6160;
 char *file_name = "test.txt";
@@ -101,7 +101,7 @@ void main_thread(void *args)
                     MSG_TYPE_PACKAGE, IPC_NOWAIT) < 0)
             buf = NULL;
         else
-            buf = *((unsigned char **)(pkg_msg.msg_buf));
+            buf = pkg_msg.msg_buf.data;
             
         switch (session.state)
         {
@@ -293,8 +293,8 @@ re_login:
                         file_path)), buf + sizeof(frame_header) + 2,\
                         file_name_len);
 
-                file_id = *((unsigned short *)(\
-                        buf + sizeof(frame_header) + 2 + file_name_len));
+                file_id = HTONS(*((unsigned short *)(\
+                        buf + sizeof(frame_header) + 2 + file_name_len)));
                 
                 printf("download %s \n", buf_file_name);
                 /* init file descriptor */
@@ -322,7 +322,7 @@ re_login:
                         file_path)), buf_pos, file_name_len);
                 
                 buf_pos += file_name_len;
-                file_id = *((unsigned short *)buf_pos);
+                file_id = NTOHS(*((unsigned short *)buf_pos));
 
                 set_file_desc(f_desc, file_id, buf_file_name);
 
@@ -391,7 +391,7 @@ re_login:
                 {
                     //session.state = STATE_TRANSFER_FIN;
                     t_log("transfer finished\n");
-                    show_mem_stat();
+                    //show_mem_stat();
                     session.state = STATE_FILE_INFO_SENT;
                     sleep(2);
                     //pthread_cancel(t_send);
