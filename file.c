@@ -165,7 +165,7 @@ int init_send_list(file_desc *f_desc)
         
         /* init current block index, all block frame index is 0xFF*/
         f_index->block_index = block_count + 1;
-        f_index->frame_index = 0xFF;
+        f_index->frame_index = 0xFFFF;
         f_index->next = NULL;
 
         block_desc->index = f_index;
@@ -396,6 +396,8 @@ static int read_file_to_msg_q(frame_index *f_index, file_desc *f_desc, FILE *fp,
 
 
     read_count = fread(file_frame->data, 1, FILE_FRAME_SIZE, fp);
+    if(read_count == 0)
+        return -1;
     if(read_count < FILE_FRAME_SIZE)
         memset(file_frame->data + read_count,\
                 0xFF, FILE_FRAME_SIZE - read_count);
@@ -467,7 +469,8 @@ void read_thread(void *args)
                 for(i = 1; i <= MAX_FRAME_COUNT; i++)
                 {
                     f_index->frame_index = i;
-                    read_file_to_msg_q(f_index, f_desc, fp, session->data_qid);
+                    if(read_file_to_msg_q(f_index, f_desc, fp, session->data_qid) < 0)
+                        break;
                 }
                 t_free(f_index);
             }
@@ -578,7 +581,11 @@ void send_thread(void *args)
             frame_len = frame_build(f_header, file_frame, sizeof(file_frame_data), buf_send);
             
             if(f_msg.msg_buf.data_len < FILE_FRAME_SIZE)
+            {
                 ((frame_header *)buf_send)->length = HTONS(f_msg.msg_buf.data_len + 11);
+                frame_crc_gen((frame_header *)buf_send, (unsigned char *)buf_send + 6,\
+                                f_msg.msg_buf.data_len + 6);
+            }
             
             /* send file data frame */
             send_file_data(session, buf_send, f_msg.msg_buf.data_len + 13);
