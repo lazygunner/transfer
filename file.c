@@ -52,7 +52,7 @@ file_desc *init_file_desc()
     
 }
 
-void set_file_desc(file_desc *f_desc, unsigned short file_id, unsigned char *file_name)
+int set_file_desc(file_desc *f_desc, unsigned short file_id, unsigned char *file_name)
 {
     int mod = 0, remain = 0, block_count = 0;
     FILE *fp;
@@ -85,7 +85,7 @@ void set_file_desc(file_desc *f_desc, unsigned short file_id, unsigned char *fil
     f_desc->frame_remain = (unsigned short *)t_malloc(\
         sizeof(unsigned short) * f_desc->block_count);
     memset(f_desc->frame_remain, 0, sizeof(unsigned short) * f_desc->block_count);
-
+    return RET_SUCCESS;
 }
 
 void clear_file_desc(file_desc *f_desc)
@@ -212,7 +212,7 @@ static int add_block_to_list_head(file_desc *f_desc, file_block_desc *blk)
 
 int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
 {
-    unsigned int        re_tran_count = 0, parse_count = 0;
+    unsigned short        re_tran_count = 0, parse_count = 0;
     unsigned int        offset = 0;
     unsigned char       *data = NULL;
     unsigned short      last_block = 0, block_index_no, frame_index_no;
@@ -221,9 +221,15 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
     frame_index         *f_index_next;
     
     data = data_buf;
-    re_tran_count = HTONL(*((unsigned int *)data));
+    re_tran_count = HTONS(*((unsigned short *)data));
+    
+    if(re_tran_count <= 0 || re_tran_count > MAX_FRAME_COUNT)
+    {
+        printf("re transmit frame count error!\n");
+        return -1;
+    }
 
-    data += sizeof(unsigned int);
+    data += sizeof(unsigned short);
     /* generate the re transmit block desc */
     while(parse_count < re_tran_count)
     {
@@ -235,13 +241,25 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
         block_index_no = HTONS(*((unsigned short *)data));
         frame_index_no = HTONS(*((unsigned short *)(data + 2)));
         
+        if(block_index_no > f_desc->block_count || block_index_no <= 0 ||\
+            (frame_index_no > MAX_FRAME_COUNT && frame_index_no != 0xFFFF)\
+            || frame_index_no <= 0)
+        {
+            t_free(b_desc);
+            printf("re tran index error!b:%d, f:%d\n",\
+                     block_index_no, frame_index_no);
+            data += 4;
+            parse_count++;
+            continue;
+        }
+
         f_index->block_index = block_index_no;
         f_index->frame_index = frame_index_no;
         f_index->next = NULL;
 
+        f_desc->frame_remain[block_index_no - 1]++;
         data += 4;
         parse_count++;
-        f_desc->frame_remain[block_index_no - 1]++;
 
         if(frame_index_no == 0xFFFF)
         {
@@ -254,6 +272,16 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
             if(HTONS(*((unsigned short *)data)) == block_index_no)
             {
                 frame_index_no = HTONS(*((unsigned short *)(data + 2)));
+                if(block_index_no > f_desc->block_count ||\
+                    block_index_no <= 0 ||\
+                    frame_index_no > MAX_FRAME_COUNT ||\
+                    frame_index_no <= 0)
+                {
+                    printf("re tran index error!b:%d, f:%d\n",\
+                            block_index_no, frame_index_no);
+                    goto next_index;
+                }
+
                 f_index_next = (frame_index *)t_malloc(sizeof(frame_index));
                 f_index_next->block_index = block_index_no;
                 f_index_next->frame_index = frame_index_no;
@@ -261,9 +289,11 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
                 f_index->next = f_index_next;
                 f_index = f_index_next;
                 
+                f_desc->frame_remain[block_index_no - 1]++;
+next_index:                
                 data += 4;
                 parse_count++;
-                f_desc->frame_remain[block_index_no - 1]++;
+                continue;
             }
             else
                 break;
@@ -577,7 +607,7 @@ void send_thread(void *args)
             file_frame->file_id = HTONS(file_frame->file_id);
             file_frame->block_index = HTONS(file_frame->block_index);
             file_frame->frame_index = HTONS(file_frame->frame_index);
-
+            //printf("send data block:%d, frame:%d\n", HTONS(file_frame->block_index), HTONS(file_frame->frame_index));
             frame_len = frame_build(f_header, file_frame, sizeof(file_frame_data), buf_send);
             
             if(f_msg.msg_buf.data_len < FILE_FRAME_SIZE)
@@ -609,6 +639,7 @@ void send_thread(void *args)
                     t_free(file_frame);
                     continue;
                 }
+                printf("block:%d has send completed.\n", HTONS(bs.block_index));
 
                 /* if all count have been sent, tansfer finished */
                 //blk_count--;

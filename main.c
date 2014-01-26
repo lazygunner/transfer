@@ -65,6 +65,10 @@ void main_thread(void *args)
     int code = 0;
     unsigned char file_name_len = 0, t_count = 0;
     int wait_seconds = MAX_WAIT_SECONDS;
+
+    struct  timeval  start;
+    struct  timeval  end;
+    float   time_used;
     
     init_socket(&session, ip_addr, port, data_port);
     frame_heartbeat_init(&session.hb);
@@ -264,6 +268,7 @@ re_login:
             }
             else
             {
+                /* timer */
                 if(wait_seconds)
                 {
                     wait_seconds--;
@@ -272,6 +277,7 @@ re_login:
                 }
                 else
                 {
+                    /* time out */
                     wait_seconds = MAX_WAIT_SECONDS;
                     session.state = STATE_CONN_LOST;
                     break;
@@ -280,7 +286,7 @@ re_login:
 
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
-                t_log("receive error");
+                t_log("receive type error");
                 break;
             }
             /* handle the sub type */
@@ -302,7 +308,8 @@ re_login:
                 
                 /* init send file data */
                 init_send_list(f_desc);
-                
+
+                gettimeofday(&start, NULL);
                 session.state = STATE_TRANSFER;
                 /* init send thread */
                 //create_thread(&t_send, send_thread, &session);
@@ -324,14 +331,22 @@ re_login:
                 buf_pos += file_name_len;
                 file_id = NTOHS(*((unsigned short *)buf_pos));
 
-                set_file_desc(f_desc, file_id, buf_file_name);
+                if(set_file_desc(f_desc, file_id, buf_file_name) < 0)
+                {
+                    printf("file error!\n");
+                    session.state = STATE_CONN_LOST;
+                    break;
+                }
 
                 /* file name len:1, file_name:n, file_id:2 */
                 buf_pos += 2;
 
                 /* skip the data before real re_tran data */
-                handle_re_transimit_frame(f_desc, buf_pos);
-
+                if(handle_re_transimit_frame(f_desc, buf_pos) < 0)
+                {
+                    session.state = STATE_CONN_LOST;
+                    break;
+                }
                 session.state = STATE_TRANSFER;
 
                 break;
@@ -381,17 +396,25 @@ re_login:
                 buf_pos += 1 + buf_pos[0] + 2;
                 
                 /* add the re-transmit packages to the list */
-                handle_re_transimit_frame(session.f_desc, buf_pos);
+                if (handle_re_transimit_frame(session.f_desc, buf_pos) < 0)
+                {
+                    session.state = STATE_CONN_LOST;
+                    break;
+                }
                
                 break;
              case FRAME_CONTROL_FINISHED:
+                gettimeofday(&end,NULL);
+                time_used = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
+                time_used /= 1000000;
+                printf("time_used = %f s\n", time_used);
                 printf("send finished\n");
                 finish = (finish_frame *)buf;
                 if(session.f_desc->file_id == HTONS(finish->file_id))
                 {
                     //session.state = STATE_TRANSFER_FIN;
                     t_log("transfer finished\n");
-                    //show_mem_stat();
+                    show_mem_stat();
                     session.state = STATE_FILE_INFO_SENT;
                     sleep(2);
                     //pthread_cancel(t_send);
@@ -430,6 +453,7 @@ re_login:
             sleep(3);
             
             close(session.fd);
+            close(session.data_fd);
             clear_file_desc(session.f_desc);
 
             //destroy_msg_q(session.package_qid);

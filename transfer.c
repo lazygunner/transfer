@@ -38,6 +38,7 @@ int connect_server(transfer_session *request)
     if(connect(client_fd, (struct sockaddr *)remote_addr, sizeof(struct sockaddr)) < 0)
     {
         perror("connect");
+        close(client_fd);
         return -1;
     }
     request->fd = client_fd;
@@ -67,7 +68,7 @@ int send_file_data(transfer_session *session, char *buf_send, int data_len)
     len = sizeof(struct sockaddr);
     send_len = sendto(session->data_fd, buf_send, data_len, 0,\
                 (struct sockaddr*)&(session->remote_data_addr), len);
-
+    usleep(5000);
     return send_len;
 }
 
