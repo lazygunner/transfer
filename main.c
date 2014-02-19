@@ -1,11 +1,12 @@
 #include "transfer.h"
+#include "config.h"
 #include "error.h"
 #include "file.h"
 
-char *ip_addr = "192.168.2.23";
-unsigned short port = 6260;
-unsigned short data_port = 6160;
-char *file_name = "test.txt";
+//char *ip_addr = "192.168.2.158";//23
+//unsigned short port = 6260;
+//unsigned short data_port = 6160;
+//char *file_name = "test.txt";
 
 
 void main_thread(void *args);
@@ -21,7 +22,21 @@ int main(int argc, char *argv[])
     if (rc != 0) {
            printf("block sigpipe error\n");
     } 
+
+    t_log("[system]initializing memory pool...");
     mem_pool_init();
+    t_log("[system]done");
+
+    t_log("[system]initializing system config...");
+    cmd_init_config();
+    if(STATUS_CONFIG_SUCCESS != cmd_parse_config())
+    {
+        set_default_config();
+        t_log("config file invalid, use default configs.\r\n");
+    }
+    else
+        t_log("[system]done.");
+
     create_thread(&t_main, main_thread, NULL);
     for(;;)
     {
@@ -33,7 +48,6 @@ int main(int argc, char *argv[])
 void main_thread(void *args)
 {
     
-    char *file_path = "files/";
 
     transfer_session session;
     transfer_frame *f_send = NULL, *f_recv = NULL;
@@ -70,7 +84,8 @@ void main_thread(void *args)
     struct  timeval  end;
     float   time_used;
     
-    init_socket(&session, ip_addr, port, data_port);
+    init_socket(&session, g_server_ip, g_control_port, g_data_port,\
+                g_train_no);
     frame_heartbeat_init(&session.hb);
     if(NULL == (f_desc = init_file_desc()))
     {
@@ -153,11 +168,11 @@ void main_thread(void *args)
             /* send login frame */
             if((len = send(session.fd, buf_send, frame_len, 0)) != frame_len)
             {
-                t_log("[login]lost connection!\n");
+                t_log("[login]lost connection!");
                 re_connect = 1;
                 goto re_conn;
             }
-            printf("login sent\n");
+            t_log("[client]login sent");
             session.state = STATE_LOGIN_SENT;
 re_conn:    
             if(re_connect)
@@ -204,12 +219,12 @@ re_conn:
             if (recv_header->type != FRAME_TYPE_CONTROL ||\
                 recv_header->sub_type != FRAME_CONTROL_LOGIN_CONFIRM)
             {
-                t_log("[login_sent]receive error\n");
+                t_log("[login_sent]receive error");
                 break;
             }
 
             session.state = STATE_LOGIN;
-            t_log("login complete!\n");
+            t_log("[client]login complete!");
             /* send heart beat after login confirmed */
             create_thread(&t_heartbeat, send_heartbeat_thread, &session);
             break;
@@ -225,7 +240,7 @@ re_conn:
             }
             
             /* init data area */
-            data_len = get_file_info(file_path, &buf_file_info);
+            data_len = get_file_info(g_file_path, &buf_file_info);
 
             /* build frame */
             frame_len = frame_build(f_header, buf_file_info, data_len, buf_send);
@@ -233,16 +248,17 @@ re_conn:
             /* send file info frame */
             if ((len = send(session.fd, buf_send, frame_len, 0)) != frame_len)
             {
-                t_log("[login]send file info failed.\n");
+                t_log("[login]send file info failed.");
                 re_connect = 1;
                 goto re_login;
             }
+            t_log("[client]file info sent");
             session.state = STATE_FILE_INFO_SENT;
 re_login:
             if(re_connect)
             {
             
-                printf("re conn\n");
+                t_log("[client]re conn");
                 re_connect = 0;
                 session.state = STATE_CONN_LOST;
             }
@@ -256,7 +272,6 @@ re_login:
                 t_free(buf_file_info);
                 buf_file_info = NULL;
             }
-            printf("login\n");
             break;
         case STATE_FILE_INFO_SENT:
             /* must have a timeout! */
@@ -296,29 +311,28 @@ re_login:
                 file_name_len = *(buf + sizeof(frame_header) + 1);
                 memset(buf_file_name, 0, FILE_NAME_MAX);
                 memcpy(buf_file_name + strlen(strcpy(buf_file_name,\
-                        file_path)), buf + sizeof(frame_header) + 2,\
+                        g_file_path)), buf + sizeof(frame_header) + 2,\
                         file_name_len);
 
                 file_id = HTONS(*((unsigned short *)(\
                         buf + sizeof(frame_header) + 2 + file_name_len)));
                 
-                printf("download %s \n", buf_file_name);
+                t_log("[server]download file: %s ", buf_file_name);
                 /* init file descriptor */
                 set_file_desc(f_desc, file_id, buf_file_name);
                 
                 /* init send file data */
                 init_send_list(f_desc);
 
+                t_log("[client]sending file...");
+
+                /* reset transfer start time */
                 gettimeofday(&start, NULL);
                 session.state = STATE_TRANSFER;
-                /* init send thread */
-                //create_thread(&t_send, send_thread, &session);
-                /* init read threads */
-                //for(t_count = 0; t_count < THREAD_COUNT; t_count++)
-                //    create_thread(&t_handle[t_count], read_thread, &session);
+                
                 break;
             case FRAME_CONTROL_CONTINUE:
-                printf("re tran\n");
+                t_log("[server]continue transmit");
                 /* save the file info */
                 buf_pos = buf;
                 buf_pos += sizeof(frame_header);
@@ -326,14 +340,14 @@ re_login:
                 buf_pos += 1;
                 memset(buf_file_name, 0, FILE_NAME_MAX);
                 memcpy(buf_file_name + strlen(strcpy(buf_file_name,\
-                        file_path)), buf_pos, file_name_len);
+                        g_file_path)), buf_pos, file_name_len);
                 
                 buf_pos += file_name_len;
                 file_id = NTOHS(*((unsigned short *)buf_pos));
 
                 if(set_file_desc(f_desc, file_id, buf_file_name) < 0)
                 {
-                    printf("file error!\n");
+                    t_log("[re_transmit]file error!");
                     session.state = STATE_CONN_LOST;
                     break;
                 }
@@ -356,7 +370,6 @@ re_login:
 
             break;
         case STATE_TRANSFER:
-            //printf("transfering\n");
             if(buf)
             {
                 recv_header = (frame_header *)buf;
@@ -364,6 +377,7 @@ re_login:
             }
             else
             {
+                /* time out routine */
                 if(wait_seconds)
                 {
                     wait_seconds--;
@@ -380,14 +394,14 @@ re_login:
 
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
-                t_log("receive error");
+                t_log("[client]receive error");
                 goto re_login;
             }
             /* handle the sub type */
             switch(recv_header->sub_type)
             {
             case FRAME_CONTROL_CONTINUE:
-                printf("transfer re tran\n");
+                t_log("[server]retransmit\n");
                 /* add to transfer list */
                 /* skip the data before real re_tran data */
                 buf_pos = buf;
@@ -404,27 +418,24 @@ re_login:
                
                 break;
              case FRAME_CONTROL_FINISHED:
+                /* caclulate transfer time */
                 gettimeofday(&end,NULL);
                 time_used = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
                 time_used /= 1000000;
-                printf("time_used = %f s\n", time_used);
-                printf("send finished\n");
+                t_log("time_used = %f s", time_used);
+                t_log("[server]transfer finished");
+
                 finish = (finish_frame *)buf;
                 if(session.f_desc->file_id == HTONS(finish->file_id))
                 {
-                    //session.state = STATE_TRANSFER_FIN;
-                    t_log("transfer finished\n");
                     show_mem_stat();
                     session.state = STATE_FILE_INFO_SENT;
                     sleep(2);
-                    //pthread_cancel(t_send);
-                    //for(t_count = 0; t_count < THREAD_COUNT; t_count++)
-                    //    pthread_cancel(t_handle[t_count]);
 
                     clear_file_desc(session.f_desc);
                 }
                 else
-                    printf("finish frame file id error!\n");
+                    printf("[finish]frame file id error!\n");
                 break;
                 
             default:
@@ -433,31 +444,21 @@ re_login:
 
             break;
         case STATE_TRANSFER_FIN:
-            //for(t_count = 0; t_count < THREAD_COUNT; t_count++)
-            //    pthread_cancel(t_handle[t_count]);
-            t_log("transfer finished\n");
+            t_log("[state]transfer finished");
             session.state = STATE_FILE_INFO_SENT;
-//            sleep(1);
 
             break;
         case STATE_CONN_LOST:
-            printf("state connection lost\n");
-            //pthread_cancel(t_recv);
-            //pthread_cancel(t_send);
-            //for(t_count = 0; t_count < THREAD_COUNT; t_count++)
-            //    pthread_cancel(t_handle[t_count]);
+            t_log("[state]connection lost");
 
-            
             /* go back to the begining state */
             session.state = STATE_WAIT_CONN;
             sleep(3);
             
-            close(session.fd);
-            close(session.data_fd);
+            shutdown(session.fd, 2);
+            shutdown(session.data_fd, 2);
             clear_file_desc(session.f_desc);
 
-            //destroy_msg_q(session.package_qid);
-            //session.package_qid = -1;
 
         default:
             break;

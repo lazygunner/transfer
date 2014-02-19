@@ -1,5 +1,5 @@
 #include "thread.h"
-#include "memory.h"
+#include "lib/memory.h"
 #include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/types.h>

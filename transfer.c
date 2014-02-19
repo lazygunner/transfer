@@ -1,9 +1,9 @@
 #include "transfer.h"
-
-char *g_train_no = "abcd1234";
+#include "config.h"
 
 int init_socket(transfer_session *request, char *host_ip,\
-                    unsigned short control_port, unsigned short data_port)
+                    unsigned short control_port, unsigned short data_port,
+                    char *train_no)
 {
     request->connect = connect_server;
     request->control_port = control_port;
@@ -11,8 +11,8 @@ int init_socket(transfer_session *request, char *host_ip,\
     request->remote_addr = host_ip;
     request->state = STATE_WAIT_CONN;
     request->fd = 0;
-    request->train_no = g_train_no;
-    request->train_no_len = strlen(g_train_no);
+    request->train_no = train_no;
+    request->train_no_len = strlen(train_no);
     request->f_desc = NULL;
 }
 
