@@ -68,7 +68,7 @@ int send_file_data(transfer_session *session, char *buf_send, int data_len)
     len = sizeof(struct sockaddr);
     send_len = sendto(session->data_fd, buf_send, data_len, 0,\
                 (struct sockaddr*)&(session->remote_data_addr), len);
-    usleep(5000);
+    //usleep(5000);
     return send_len;
 }
 
@@ -104,9 +104,10 @@ void receive_handler(void *args)
             len = recv(sock_fd, buf, LEN_HEADER, 0);
             
             recv_len = NTOHS(*((unsigned short *)buf));
-            if (recv_len > 100 || recv_len <= 0)
+            if (recv_len > 2400 || recv_len <= 0)
             {
-                t_log("receive package length error!");
+                //t_log("receive package length error!");
+                //loged too much
                 continue;
             }
             frame_len = recv(sock_fd, buf + LEN_HEADER, recv_len, 0);
@@ -149,7 +150,7 @@ void receive_handler(void *args)
 
     }
 
-
+    return;
 }
 
 void send_heartbeat_thread(void *args)

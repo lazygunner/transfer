@@ -241,6 +241,7 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
         block_index_no = HTONS(*((unsigned short *)data));
         frame_index_no = HTONS(*((unsigned short *)(data + 2)));
         
+        //printf("b:%d, f:%d\n", block_index_no, frame_index_no);
         if(block_index_no > f_desc->block_count || block_index_no <= 0 ||\
             (frame_index_no > MAX_FRAME_COUNT && frame_index_no != 0xFFFF)\
             || frame_index_no <= 0)
@@ -272,6 +273,7 @@ int handle_re_transimit_frame(file_desc *f_desc, unsigned char *data_buf)
             if(HTONS(*((unsigned short *)data)) == block_index_no)
             {
                 frame_index_no = HTONS(*((unsigned short *)(data + 2)));
+                //printf("b:%d, f:%d\n", block_index_no, frame_index_no);
                 if(block_index_no > f_desc->block_count ||\
                     block_index_no <= 0 ||\
                     frame_index_no > MAX_FRAME_COUNT ||\
@@ -334,6 +336,8 @@ int get_file_info(char *path, unsigned char **buf)
         strcpy(path_buf + strlen(strcpy(path_buf, path)), ent->d_name);
         if(fp = fopen(path_buf, "r"))
         {
+            if(get_file_size(fp) <= 0)
+                continue;
             name_len = strlen(ent->d_name);
             total_len += FILE_INFO_LEN + name_len;
             file_count++;
@@ -365,6 +369,8 @@ int get_file_info(char *path, unsigned char **buf)
        if(stat(path_buf, &file_stat) != -1)
         {
             mod_time = HTONL((unsigned int)(file_stat.st_mtime));
+            if(file_stat.st_size <= 0)
+                continue;
             file_size = HTONL((unsigned int)file_stat.st_size);
             memcpy((*buf) + offset, (unsigned char *)(&file_size), 4);
             offset += 4;
@@ -564,6 +570,12 @@ void send_thread(void *args)
     FILE *fp;
     fp = fopen("receive.txt", "w");
 #endif
+    struct  timeval  start;
+    struct  timeval  end;
+    float   time_used;
+    char    started = 0;
+    int     send_count = 0;
+    int     ret_val = 0;
 
     
     session = (transfer_session *)args;
@@ -598,8 +610,23 @@ void send_thread(void *args)
             if ((err = recv_msg_q(qid, &f_msg, sizeof(q_msg),\
                     MSG_TYPE_FILE_FRAME, IPC_NOWAIT)) < 0)  
             {  
+                    if(started)
+                    {
+                        gettimeofday(&end,NULL);
+                        time_used = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
+                        time_used /= 1000000;
+                        printf("send_time_used = %f s\n", time_used);
+                        printf("send_frame_count = %d \n", send_count);
+                        send_count = 0;
+                        started = 0;
+                    }
                     sleep(1);
                     continue;
+            }
+            if(0 == started)
+            {
+                gettimeofday(&start, NULL);
+                started = 1;
             }
             file_frame = (file_frame_data *)(f_msg.msg_buf.data);
             b_index = file_frame->block_index;
@@ -618,7 +645,13 @@ void send_thread(void *args)
             }
             
             /* send file data frame */
-            send_file_data(session, buf_send, f_msg.msg_buf.data_len + 13);
+            ret_val = send_file_data(session, buf_send, f_msg.msg_buf.data_len + 13);
+            if(ret_val < 0)
+            {
+                printf("return value:%d.\n", ret_val);
+                perror("send to!");
+            }
+            send_count++;
             
             if(!f_desc->frame_remain)
             {
