@@ -38,7 +38,7 @@ file_desc *init_file_desc()
     f_desc->block_head->next = NULL;
     f_desc->block_tail = f_desc->block_head;
 
-    block_list_lock = t_malloc(sizeof(t_lock));
+    block_list_lock = (t_lock *)t_malloc(sizeof(t_lock));
     init_lock(block_list_lock);
     f_desc->block_list_lock = block_list_lock;
 
@@ -68,10 +68,10 @@ int set_file_desc(file_desc *f_desc, unsigned short file_id, unsigned char *file
         return ERR_FILE_NOT_EXIST;
     if(0 == (f_desc->file_size = get_file_size(fp)))
     {
-        close(fp);
+        fclose(fp);
         return ERR_FILE_SIZE_ZERO;
     }
-    close(fp);
+    fclose(fp);
 
     mod = f_desc->file_size % FILE_BLOCK_SIZE;
     block_count = f_desc->file_size / FILE_BLOCK_SIZE;
@@ -337,14 +337,20 @@ int get_file_info(char *path, unsigned char **buf)
         if(fp = fopen(path_buf, "r"))
         {
             if(get_file_size(fp) <= 0)
+            {
+                fclose(fp);
+                fp = NULL;
                 continue;
+            }
             name_len = strlen(ent->d_name);
             total_len += FILE_INFO_LEN + name_len;
             file_count++;
             fclose(fp);
+            fp = NULL;
         }
     }
-    close(dir);
+    closedir(dir);
+    dir = NULL;
     
     //n files and count(n)
     if ((*buf = (unsigned char *)t_malloc(total_len + 1)) == NULL)
@@ -382,7 +388,8 @@ int get_file_info(char *path, unsigned char **buf)
             offset += name_len;
         }
     } 
-    close(dir);
+    closedir(dir);
+    dir = NULL;
     
     return offset;
 }
@@ -457,7 +464,7 @@ void read_thread(void *args)
     file_desc           *f_desc;
     file_block_desc     *b_desc;
     frame_index         *f_index, *last_index;
-    FILE                *fp;
+    FILE                *fp = NULL;
     int                 err;
 
     int i = 0;

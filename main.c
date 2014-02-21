@@ -10,11 +10,41 @@
 
 
 void main_thread(void *args);
+
+t_thread t_handle[THREAD_COUNT];
+t_thread t_send = 0, t_main = 0;
+t_thread t_recv = 0, t_heartbeat = 0;
+
+int g_recv_qid;
+int g_data_qid;
+
+void destroy(int sig)
+{
+    int i = 0;
+
+    /* cancel threads */
+    if(t_send)
+        cancel_thread(t_send);
+    if(t_handle[0])    
+        for(; i < THREAD_COUNT; i++)
+            cancel_thread(t_handle[i]);
+    if(t_recv)    
+        cancel_thread(t_recv);
+    if(t_heartbeat)    
+        cancel_thread(t_heartbeat);
+    cancel_thread(t_main);
+
+    /* destroy msg q */
+    destroy_msg_q(g_recv_qid);
+    destroy_msg_q(g_data_qid);
+
+    exit(0);
+}
+
 int main(int argc, char *argv[])
 {
-    t_thread t_main;
-    int a;
-
+    
+    /* block sigpipe error */
     sigset_t signal_mask;
     sigemptyset (&signal_mask);
     sigaddset (&signal_mask, SIGPIPE);
@@ -22,6 +52,8 @@ int main(int argc, char *argv[])
     if (rc != 0) {
            printf("block sigpipe error\n");
     } 
+    
+    signal(SIGINT, destroy);
 
     t_log("[system]initializing memory pool...");
     mem_pool_init();
@@ -37,18 +69,17 @@ int main(int argc, char *argv[])
     else
         t_log("[system]done.");
 
+    g_recv_qid = create_msg_q(MSG_Q_KEY_ID_RECV);
+    g_data_qid = create_msg_q(MSG_Q_KEY_ID_DATA);
+
+
     create_thread(&t_main, main_thread, NULL);
-    for(;;)
-    {
-        a++;
-    }
+    for(;;);
 
 }
 
 void main_thread(void *args)
 {
-    
-
     transfer_session session;
     transfer_frame *f_send = NULL, *f_recv = NULL;
     frame_header *f_header = NULL, *recv_header = NULL;
@@ -56,8 +87,6 @@ void main_thread(void *args)
     file_desc *f_desc = NULL;
     finish_frame *finish = NULL;
 
-    t_thread t_handle[THREAD_COUNT];
-    t_thread t_send, t_recv, t_heartbeat;
 
     q_msg pkg_msg;
 
@@ -95,8 +124,8 @@ void main_thread(void *args)
     session.f_desc = f_desc;
  
     /* create receive messsage queue */
-    session.package_qid = create_msg_q(MSG_Q_KEY_ID_RECV);
-    session.data_qid = create_msg_q(MSG_Q_KEY_ID_DATA);
+    session.package_qid = g_recv_qid;
+    session.data_qid = g_data_qid;
     
 
     /* init send thread */
@@ -108,14 +137,6 @@ void main_thread(void *args)
 
     for(;;)
     {
-        //printf("Enter string to send:");
-        /*
-        if (buf)
-        {
-            printf("free ptr:%p\n", buf);
-            t_free(buf);
-        }
-        */
         if(recv_msg_q(session.package_qid, &pkg_msg, sizeof(q_msg),\
                     MSG_TYPE_PACKAGE, IPC_NOWAIT) < 0)
             buf = NULL;
@@ -128,7 +149,7 @@ void main_thread(void *args)
             /* establish the socket connection with server */
             if(session.connect(&session) < 0)
             {
-                t_log("connect to server failed!");
+                t_log("[client]connect to server failed!");
                 DELAY(CONNECT_DELAY_SECONDS);
                 break;
             }
@@ -401,7 +422,7 @@ re_login:
             switch(recv_header->sub_type)
             {
             case FRAME_CONTROL_CONTINUE:
-                t_log("[server]retransmit\n");
+                t_log("[server]retransmit");
                 /* add to transfer list */
                 /* skip the data before real re_tran data */
                 buf_pos = buf;
@@ -456,7 +477,9 @@ re_login:
             sleep(3);
             
             shutdown(session.fd, 2);
+            session.fd = NULL;
             shutdown(session.data_fd, 2);
+            session.data_fd = NULL;
             clear_file_desc(session.f_desc);
 
 

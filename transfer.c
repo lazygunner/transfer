@@ -37,7 +37,7 @@ int connect_server(transfer_session *request)
     }
     if(connect(client_fd, (struct sockaddr *)remote_addr, sizeof(struct sockaddr)) < 0)
     {
-        perror("connect");
+        //perror("connect");
         close(client_fd);
         return -1;
     }
@@ -76,7 +76,7 @@ void receive_handler(void *args)
 {
     fd_set              rset;
     int                 sock_fd;
-    int                 recv_len;
+    int                 recv_len = 0;
     int                 frame_len;
     int                 len;
     int                 data_len;
@@ -103,6 +103,7 @@ void receive_handler(void *args)
             //printf("fd is set!");
             len = recv(sock_fd, buf, LEN_HEADER, 0);
             
+            recv_len = 0;
             recv_len = NTOHS(*((unsigned short *)buf));
             if (recv_len > 2400 || recv_len <= 0)
             {
@@ -169,8 +170,8 @@ void send_heartbeat_thread(void *args)
         if((ret = send(session->fd, session->hb, HEARTBEAT_LEN, 0)) !=\
                 HEARTBEAT_LEN)
         {
-            session->state = STATE_CONN_LOST;
-            printf("connection lost!\n");
+            //session->state = STATE_CONN_LOST;
+            t_log("[heart_beat]connection lost!");
             return;
         }
         //else

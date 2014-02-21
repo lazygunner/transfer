@@ -1,4 +1,4 @@
-CFLAGS = -g 
+CFLAGS = -g -I include/
 LDFLAGS = -pthread
 
 transfer: transfer.o main.o log.o crc.o frame.o file.o thread.o lib/memory.o config.o lib/lib_minini.o

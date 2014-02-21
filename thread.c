@@ -49,12 +49,17 @@ int t_aquire(t_sem *sem)
     return sem_wait(sem);
 }
 
-int create_thread(t_thread *tid, void *(*func)(void), void *args)
+int create_thread(t_thread *tid, void *(*func)(void *), void *args)
 {
 #ifdef VXWORKS
 #else
     return pthread_create(tid, NULL, func, args);
 #endif
+}
+
+int cancel_thread(t_thread *tid)
+{
+    return pthread_cancel(*tid);
 }
 
 int create_msg_q(int key_id)

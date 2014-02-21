@@ -109,7 +109,15 @@ pthread_mutex_t mutex;
 	#define DBG_PRINT(format, ...) 
 #endif
 
-
+void mem_pool_free()
+{
+#ifdef VXWORKS
+    return;
+#else
+    free(block_desc_base_addr);
+#endif
+   
+}
 
 void mem_pool_init()
 {
@@ -128,7 +136,7 @@ void mem_pool_init()
 	block_tail *blk_tail				= NULL;
 
 	/*  初始化每个内存池中的内存块数  */
-	mem_pool[BLK_MEM_TYPE_32].block_num		= 5000;
+	mem_pool[BLK_MEM_TYPE_32].block_num		= 8000;
 	mem_pool[BLK_MEM_TYPE_64].block_num		= 20;
 	mem_pool[BLK_MEM_TYPE_128].block_num	= 40;
 	mem_pool[BLK_MEM_TYPE_256].block_num	= 20;

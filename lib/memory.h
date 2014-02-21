@@ -161,7 +161,7 @@ typedef struct tag_mem_pool_stat{
 
 
 
-
+void mem_pool_free();
 void mem_pool_init();
 void *mem_alloc(unsigned int size, unsigned int alloc_mod);
 void mem_free(unsigned char *mem_addr);
