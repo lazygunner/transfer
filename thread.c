@@ -49,6 +49,12 @@ int t_aquire(t_sem *sem)
     return sem_wait(sem);
 }
 
+/* non-block */
+int t_aquire_nb(t_sem *sem)
+{
+    return sem_trywait(sem);
+}
+
 int create_thread(t_thread *tid, void *(*func)(void *), void *args)
 {
 #ifdef VXWORKS

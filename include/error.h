@@ -1,6 +1,7 @@
 #ifndef __ERR_NO_
 #define __ERR_NO_
 
+#include <errno.h>
 #define SUCCESS_NO_ERROR 0
 #define RET_SUCCESS 0
 /* 支撑模块的操作系统子模块的内部错误码 */

@@ -98,6 +98,7 @@ void main_thread(void *args)
     unsigned char *buf_file_info;
     unsigned char *buf_pos;
     unsigned char re_connect = 0;
+    unsigned char send_completed = 0;
 
 
     int len = 0, data_len = 0, frame_len = 0;
@@ -382,6 +383,7 @@ re_login:
                     session.state = STATE_CONN_LOST;
                     break;
                 }
+
                 session.state = STATE_TRANSFER;
 
                 break;
@@ -399,20 +401,35 @@ re_login:
             else
             {
                 /* time out routine */
-                if(wait_seconds)
+                if(0 == t_aquire_nb(&session.finished_sem))
                 {
-                    wait_seconds--;
-                    sleep(1);
-                    break;
+                    send_completed = 1;
+                }
+
+                if(send_completed)
+                {
+                    if(wait_seconds)
+                    {
+                        wait_seconds--;
+                        printf("%d\n", wait_seconds);
+                        sleep(1);
+                        break;
+                    }
+                    else
+                    {
+                        wait_seconds = MAX_WAIT_SECONDS;
+                        session.state = STATE_CONN_LOST;
+                        break;
+                    }
                 }
                 else
                 {
-                    wait_seconds = MAX_WAIT_SECONDS;
-                    session.state = STATE_CONN_LOST;
+                    sleep(1);
                     break;
                 }
-             }
+            }
 
+            send_completed = 0;
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
                 t_log("[client]receive error");
@@ -437,6 +454,7 @@ re_login:
                     break;
                 }
                
+                t_aquire_nb(&session.finished_sem);
                 break;
              case FRAME_CONTROL_FINISHED:
                 /* caclulate transfer time */
@@ -476,10 +494,15 @@ re_login:
             session.state = STATE_WAIT_CONN;
             sleep(3);
             
+            t_log("[lost]shutdown fd");
             shutdown(session.fd, 2);
+            t_log("[lost]null fd");
             session.fd = NULL;
+            t_log("[lost]shutdown data fd");
             shutdown(session.data_fd, 2);
+            t_log("[lost]null data fd");
             session.data_fd = NULL;
+            t_log("[lost]clear file desc");
             clear_file_desc(session.f_desc);
 
 

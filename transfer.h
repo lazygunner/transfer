@@ -26,7 +26,7 @@
 #define BUF_SIZE 1024
 #define FILE_NAME_MAX 256
 #define CONNECT_DELAY_SECONDS 10
-#define MAX_WAIT_SECONDS 120
+#define MAX_WAIT_SECONDS 20
 #define LEN_HEADER 2
 #define THREAD_COUNT 3
 
@@ -157,6 +157,8 @@ struct transfer_session_tag
 
 
     void *protocol_data;
+
+    t_sem finished_sem;
 
     file_desc *f_desc;
 

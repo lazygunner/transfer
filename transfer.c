@@ -1,22 +1,23 @@
 #include "transfer.h"
 #include "config.h"
 
-int init_socket(transfer_session *request, char *host_ip,\
+int init_socket(transfer_session *session, char *host_ip,\
                     unsigned short control_port, unsigned short data_port,
                     char *train_no)
 {
-    request->connect = connect_server;
-    request->control_port = control_port;
-    request->data_port = data_port;
-    request->remote_addr = host_ip;
-    request->state = STATE_WAIT_CONN;
-    request->fd = 0;
-    request->train_no = train_no;
-    request->train_no_len = strlen(train_no);
-    request->f_desc = NULL;
+    session->connect = connect_server;
+    session->control_port = control_port;
+    session->data_port = data_port;
+    session->remote_addr = host_ip;
+    session->state = STATE_WAIT_CONN;
+    session->fd = 0;
+    session->train_no = train_no;
+    session->train_no_len = strlen(train_no);
+    session->f_desc = NULL;
+    init_sem(&session->finished_sem, 0);
 }
 
-int connect_server(transfer_session *request)
+int connect_server(transfer_session *session)
 {
     int client_fd, data_fd;
     int len = 0;
@@ -24,11 +25,11 @@ int connect_server(transfer_session *request)
 
     memset(&remote_addr, 0, sizeof(remote_addr));
 
-    remote_addr = &(request->remote_con_addr);
+    remote_addr = &(session->remote_con_addr);
 
     remote_addr->sin_family = AF_INET;
-    inet_pton(AF_INET, request->remote_addr, &(remote_addr->sin_addr.s_addr));
-    remote_addr->sin_port = HTONS(request->control_port);
+    inet_pton(AF_INET, session->remote_addr, &(remote_addr->sin_addr.s_addr));
+    remote_addr->sin_port = HTONS(session->control_port);
 
     if((client_fd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
     {
@@ -41,20 +42,20 @@ int connect_server(transfer_session *request)
         close(client_fd);
         return -1;
     }
-    request->fd = client_fd;
+    session->fd = client_fd;
     printf("connected to server\n");
 
-    remote_addr = &(request->remote_data_addr);
+    remote_addr = &(session->remote_data_addr);
     remote_addr->sin_family = AF_INET;
-    inet_pton(AF_INET, request->remote_addr, &(remote_addr->sin_addr.s_addr));
-    remote_addr->sin_port = HTONS(request->data_port);
+    inet_pton(AF_INET, session->remote_addr, &(remote_addr->sin_addr.s_addr));
+    remote_addr->sin_port = HTONS(session->data_port);
 
     if((data_fd = socket(PF_INET, SOCK_DGRAM, 0)) < 0)
     {
         perror("socket");
         return -1;
     }
-    request->data_fd = data_fd;
+    session->data_fd = data_fd;
    
     return client_fd;
 
@@ -93,8 +94,11 @@ void receive_handler(void *args)
     FD_ZERO(&rset);
     for(;;)
     {
-        if(session->state == STATE_TRANSFER_FIN || session->state == STATE_CONN_LOST)
+        if(session->state == STATE_WAIT_CONN)
+        {
+            printf("exit receive handler\n");
             return;
+        }
 
         FD_SET(sock_fd, &rset);
         select(sock_fd + 1, &rset, NULL, NULL, NULL);

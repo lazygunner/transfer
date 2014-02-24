@@ -97,7 +97,7 @@ void clear_file_desc(file_desc *f_desc)
         return;
     f_desc->file_id = 0;
     f_desc->file_name = NULL;
-
+    printf("[before]block_head->next:%p\n", f_desc->block_head->next);
     while(f_desc->block_head->next)
     {
         b_desc = f_desc->block_head->next;
@@ -116,7 +116,7 @@ void clear_file_desc(file_desc *f_desc)
         t_free(b_desc);
     }
     f_desc->block_tail = f_desc->block_head;
-
+    printf("[after]block_head->next:%p\n", f_desc->block_head->next);
     if(f_desc->frame_remain)
     {
         t_free(f_desc->frame_remain);
@@ -619,6 +619,8 @@ void send_thread(void *args)
             {  
                     if(started)
                     {
+                        
+                        t_release(&(session->finished_sem));
                         gettimeofday(&end,NULL);
                         time_used = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
                         time_used /= 1000000;
@@ -635,6 +637,10 @@ void send_thread(void *args)
                 gettimeofday(&start, NULL);
                 started = 1;
             }
+            
+                        
+            t_aquire_nb(&(session->finished_sem));
+
             file_frame = (file_frame_data *)(f_msg.msg_buf.data);
             b_index = file_frame->block_index;
             /* encapusulate frame */
