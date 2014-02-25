@@ -97,7 +97,6 @@ void clear_file_desc(file_desc *f_desc)
         return;
     f_desc->file_id = 0;
     f_desc->file_name = NULL;
-    printf("[before]block_head->next:%p\n", f_desc->block_head->next);
     while(f_desc->block_head->next)
     {
         b_desc = f_desc->block_head->next;
@@ -116,7 +115,6 @@ void clear_file_desc(file_desc *f_desc)
         t_free(b_desc);
     }
     f_desc->block_tail = f_desc->block_head;
-    printf("[after]block_head->next:%p\n", f_desc->block_head->next);
     if(f_desc->frame_remain)
     {
         t_free(f_desc->frame_remain);
@@ -617,20 +615,21 @@ void send_thread(void *args)
             if ((err = recv_msg_q(qid, &f_msg, sizeof(q_msg),\
                     MSG_TYPE_FILE_FRAME, IPC_NOWAIT)) < 0)  
             {  
-                    if(started)
-                    {
-                        
-                        t_release(&(session->finished_sem));
-                        gettimeofday(&end,NULL);
-                        time_used = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
-                        time_used /= 1000000;
-                        printf("send_time_used = %f s\n", time_used);
-                        printf("send_frame_count = %d \n", send_count);
-                        send_count = 0;
-                        started = 0;
-                    }
-                    sleep(1);
-                    continue;
+                if(started)
+                {
+                    //release finished signal                  
+                    t_release(&(session->finished_sem));
+                    gettimeofday(&end,NULL);
+                    time_used = (end.tv_sec - start.tv_sec) * 1000000\
+                                + (end.tv_usec - start.tv_usec);
+                    time_used /= 1000000;
+                    printf("send_time_used = %f s\n", time_used);
+                    printf("send_frame_count = %d \n", send_count);
+                    send_count = 0;
+                    started = 0;
+                }
+                sleep(1);
+                continue;
             }
             if(0 == started)
             {

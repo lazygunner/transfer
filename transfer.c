@@ -82,11 +82,12 @@ void receive_handler(void *args)
     int                 len;
     int                 data_len;
     unsigned short      recv_crc;
-    unsigned char       buf[1024];
+    unsigned char       buf[2400];
     unsigned char       *handle_package;
     q_msg               package_msg;
     transfer_session    *session;
     struct timeval timeout={1,0};
+    int i;
 
     session = (transfer_session *)args;
     sock_fd = session->fd;
@@ -111,11 +112,17 @@ void receive_handler(void *args)
             recv_len = NTOHS(*((unsigned short *)buf));
             if (recv_len > 2400 || recv_len <= 0)
             {
-                //t_log("receive package length error!");
+                t_log("receive package length error!length:%d\n", recv_len);
+                frame_len = recv(sock_fd, buf + LEN_HEADER, 2400, 0);
+                printf("frame len:%d\n", frame_len);
+                for(i = 0; i < frame_len; i++)
+                    printf("%02x ", buf[i]);
+                printf("\n");
                 //loged too much
                 continue;
             }
-            frame_len = recv(sock_fd, buf + LEN_HEADER, recv_len, 0);
+            frame_len = recv(sock_fd, buf + LEN_HEADER, recv_len, MSG_WAITALL);
+            //printf("recv len:%d frame len:%d\n", recv_len, frame_len);
             
             if (frame_len != recv_len)
                 continue;
@@ -174,7 +181,7 @@ void send_heartbeat_thread(void *args)
         if((ret = send(session->fd, session->hb, HEARTBEAT_LEN, 0)) !=\
                 HEARTBEAT_LEN)
         {
-            //session->state = STATE_CONN_LOST;
+            session->state = STATE_CONN_LOST;
             t_log("[heart_beat]connection lost!");
             return;
         }

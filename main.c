@@ -299,27 +299,12 @@ re_login:
             /* must have a timeout! */
             /* wait for server frame */
             if(buf)
-            {
                 recv_header = (frame_header *)buf;
-                wait_seconds = MAX_WAIT_SECONDS;
-            }
             else
             {
-                /* timer */
-                if(wait_seconds)
-                {
-                    wait_seconds--;
-                    sleep(1);
-                    break;
-                }
-                else
-                {
-                    /* time out */
-                    wait_seconds = MAX_WAIT_SECONDS;
-                    session.state = STATE_CONN_LOST;
-                    break;
-                }
-             }
+                /*  */
+                sleep(1);
+            }
 
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
@@ -351,6 +336,7 @@ re_login:
                 /* reset transfer start time */
                 gettimeofday(&start, NULL);
                 session.state = STATE_TRANSFER;
+                t_aquire_nb(&(session.finished_sem));
                 
                 break;
             case FRAME_CONTROL_CONTINUE:
@@ -370,7 +356,7 @@ re_login:
                 if(set_file_desc(f_desc, file_id, buf_file_name) < 0)
                 {
                     t_log("[re_transmit]file error!");
-                    session.state = STATE_CONN_LOST;
+                    session.state = STATE_FILE_INFO_SENT;
                     break;
                 }
 
@@ -380,14 +366,17 @@ re_login:
                 /* skip the data before real re_tran data */
                 if(handle_re_transimit_frame(f_desc, buf_pos) < 0)
                 {
-                    session.state = STATE_CONN_LOST;
+                    clear_file_desc(f_desc);
+                    session.state = STATE_FILE_INFO_SENT;
                     break;
                 }
 
                 session.state = STATE_TRANSFER;
+                t_aquire_nb(&(session.finished_sem));
 
                 break;
             default:
+                
                 break;
             }
 
@@ -402,9 +391,9 @@ re_login:
             {
                 /* time out routine */
                 if(0 == t_aquire_nb(&session.finished_sem))
-                {
                     send_completed = 1;
-                }
+                else
+                    send_completed = 0;
 
                 if(send_completed)
                 {
@@ -418,7 +407,10 @@ re_login:
                     else
                     {
                         wait_seconds = MAX_WAIT_SECONDS;
-                        session.state = STATE_CONN_LOST;
+                        /* keep the tcp alive */
+                        //session.state = STATE_CONN_LOST;
+                        clear_file_desc(session.f_desc);
+                        session.state = STATE_FILE_INFO_SENT;
                         break;
                     }
                 }
@@ -450,7 +442,8 @@ re_login:
                 /* add the re-transmit packages to the list */
                 if (handle_re_transimit_frame(session.f_desc, buf_pos) < 0)
                 {
-                    session.state = STATE_CONN_LOST;
+                    clear_file_desc(session.f_desc);
+                    session.state = STATE_FILE_INFO_SENT;
                     break;
                 }
                
@@ -467,11 +460,11 @@ re_login:
                 finish = (finish_frame *)buf;
                 if(session.f_desc->file_id == HTONS(finish->file_id))
                 {
-                    show_mem_stat();
+                    //show_mem_stat();
+                    clear_file_desc(session.f_desc);
                     session.state = STATE_FILE_INFO_SENT;
                     sleep(2);
 
-                    clear_file_desc(session.f_desc);
                 }
                 else
                     printf("[finish]frame file id error!\n");
@@ -494,15 +487,10 @@ re_login:
             session.state = STATE_WAIT_CONN;
             sleep(3);
             
-            t_log("[lost]shutdown fd");
             shutdown(session.fd, 2);
-            t_log("[lost]null fd");
             session.fd = NULL;
-            t_log("[lost]shutdown data fd");
             shutdown(session.data_fd, 2);
-            t_log("[lost]null data fd");
             session.data_fd = NULL;
-            t_log("[lost]clear file desc");
             clear_file_desc(session.f_desc);
 
 
