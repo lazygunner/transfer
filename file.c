@@ -615,10 +615,9 @@ void send_thread(void *args)
             if ((err = recv_msg_q(qid, &f_msg, sizeof(q_msg),\
                     MSG_TYPE_FILE_FRAME, IPC_NOWAIT)) < 0)  
             {  
+                /* no msg in the queue, assum sending finished */
                 if(started)
                 {
-                    //release finished signal                  
-                    t_release(&(session->finished_sem));
                     gettimeofday(&end,NULL);
                     time_used = (end.tv_sec - start.tv_sec) * 1000000\
                                 + (end.tv_usec - start.tv_usec);
@@ -638,7 +637,6 @@ void send_thread(void *args)
             }
             
                         
-            t_aquire_nb(&(session->finished_sem));
 
             file_frame = (file_frame_data *)(f_msg.msg_buf.data);
             b_index = file_frame->block_index;

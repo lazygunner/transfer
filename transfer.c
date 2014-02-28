@@ -14,7 +14,6 @@ int init_socket(transfer_session *session, char *host_ip,\
     session->train_no = train_no;
     session->train_no_len = strlen(train_no);
     session->f_desc = NULL;
-    init_sem(&session->finished_sem, 0);
 }
 
 int connect_server(transfer_session *session)

@@ -74,7 +74,8 @@ int main(int argc, char *argv[])
 
 
     create_thread(&t_main, main_thread, NULL);
-    for(;;);
+    for(;;)
+        sleep(100);
 
 }
 
@@ -98,7 +99,6 @@ void main_thread(void *args)
     unsigned char *buf_file_info;
     unsigned char *buf_pos;
     unsigned char re_connect = 0;
-    unsigned char send_completed = 0;
 
 
     int len = 0, data_len = 0, frame_len = 0;
@@ -150,7 +150,7 @@ void main_thread(void *args)
             /* establish the socket connection with server */
             if(session.connect(&session) < 0)
             {
-                t_log("[client]connect to server failed!");
+                printf("[client]connect to server failed!\n");
                 DELAY(CONNECT_DELAY_SECONDS);
                 break;
             }
@@ -299,12 +299,30 @@ re_login:
             /* must have a timeout! */
             /* wait for server frame */
             if(buf)
+            {
                 recv_header = (frame_header *)buf;
+                wait_seconds = MAX_WAIT_SECONDS;
+            }
             else
             {
                 /*  */
-                sleep(1);
+                if(wait_seconds)
+                {
+                    wait_seconds--;
+                    sleep(1);
+                    break;
+                }
+                else
+                {
+                    wait_seconds = MAX_WAIT_SECONDS;
+                    /* keep the tcp alive */
+                    clear_file_desc(session.f_desc);
+                    session.state = STATE_FILE_INFO_SENT;
+                    t_log("[client]timeout! all file tranfer completed!");
+                    break;
+                }
             }
+
 
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
@@ -336,7 +354,6 @@ re_login:
                 /* reset transfer start time */
                 gettimeofday(&start, NULL);
                 session.state = STATE_TRANSFER;
-                t_aquire_nb(&(session.finished_sem));
                 
                 break;
             case FRAME_CONTROL_CONTINUE:
@@ -372,7 +389,6 @@ re_login:
                 }
 
                 session.state = STATE_TRANSFER;
-                t_aquire_nb(&(session.finished_sem));
 
                 break;
             default:
@@ -389,39 +405,12 @@ re_login:
             }
             else
             {
-                /* time out routine */
-                if(0 == t_aquire_nb(&session.finished_sem))
-                    send_completed = 1;
-                else
-                    send_completed = 0;
-
-                if(send_completed)
-                {
-                    if(wait_seconds)
-                    {
-                        wait_seconds--;
-                        printf("%d\n", wait_seconds);
-                        sleep(1);
-                        break;
-                    }
-                    else
-                    {
-                        wait_seconds = MAX_WAIT_SECONDS;
-                        /* keep the tcp alive */
-                        //session.state = STATE_CONN_LOST;
-                        clear_file_desc(session.f_desc);
-                        session.state = STATE_FILE_INFO_SENT;
-                        break;
-                    }
-                }
-                else
-                {
-                    sleep(1);
-                    break;
-                }
+                /* waiting for re-tran or finish frame forever\
+                    until socket disconnected */
+                sleep(1);
+                break;
             }
 
-            send_completed = 0;
             if (recv_header->type != FRAME_TYPE_CONTROL)
             {
                 t_log("[client]receive error");
@@ -447,7 +436,6 @@ re_login:
                     break;
                 }
                
-                t_aquire_nb(&session.finished_sem);
                 break;
              case FRAME_CONTROL_FINISHED:
                 /* caclulate transfer time */
